@@ -187,3 +187,4 @@ CensusSense is a focused hackathon MVP. It currently supports county-level quest
 ## Collaborators
 
 - Behnido Calida
+- Sarah Nolt-Caraway
