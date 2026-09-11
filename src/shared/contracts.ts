@@ -1,5 +1,6 @@
 export type Metric = 'population' | 'work_from_home' | 'median_household_income' | 'aging_and_income';
 export type Operation = 'compare' | 'growth' | 'change' | 'filter';
+export type InterpretationSource = 'ollama' | 'fallback';
 
 export type QuestionIntent = {
   metric: Metric;
@@ -10,7 +11,10 @@ export type QuestionIntent = {
   operation: Operation;
   comparison?: { baselineYear?: string; laterYear?: string };
   filters?: { agingThreshold?: number; incomeThreshold?: number };
+  interpretationSource?: InterpretationSource;
 };
+
+export type EvidenceRequest = { vintage: string; url: string };
 
 export type Evidence = {
   dataset: string;
@@ -18,7 +22,7 @@ export type Evidence = {
   variables: Array<{ id: string; label: string; universe?: string; unit?: string }>;
   geography: string;
   filters: Record<string, string>;
-  requestUrl: string;
+  requests: EvidenceRequest[];
   rawValues: Array<Record<string, unknown>>;
   calculation: string;
   retrievedAt: string;

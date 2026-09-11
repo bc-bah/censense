@@ -1,4 +1,4 @@
-import type { CensusAnswer, QuestionIntent } from '../shared/contracts.js';
+import type { CensusAnswer, EvidenceRequest, QuestionIntent } from '../shared/contracts.js';
 import { BASELINE_YEAR, CENSUS_YEAR, metricCatalog } from './catalog.js';
 import { rankGrowth } from './calculations.js';
 import { parseCensusRows } from './responseValidation.js';
@@ -38,35 +38,44 @@ function selectedRows(rows: CensusRecord[], intent: QuestionIntent): CensusRecor
   return rows.filter((row) => requested.has(censusName(row).toLowerCase()));
 }
 
+function unmatchedCounties(rows: CensusRecord[], intent: QuestionIntent): string[] {
+  if (!intent.counties?.length) return [];
+  const available = new Set(rows.map((row) => censusName(row).toLowerCase()));
+  return intent.counties.filter((county) => !available.has(county.toLowerCase()));
+}
+
 export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAnswer> {
   const definition = metricCatalog[intent.metric];
   let rows: CensusAnswer['rows'];
   let calculation = 'Values retrieved from the approved ACS catalog.';
-  let requestUrls: string[] = [];
+  let requests: EvidenceRequest[] = [];
+  const warnings: string[] = [];
 
   if (intent.metric === 'population') {
     if (intent.operation === 'compare') {
       const result = await queryCensus(intent.years[0] ?? CENSUS_YEAR, ['B01003_001E'], intent.state);
-      requestUrls = [result.requestUrl];
+      requests = [{ vintage: intent.years[0] ?? CENSUS_YEAR, url: result.requestUrl }];
       rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), values: { population: numericValue(row, 'B01003_001E') } })).sort((a, b) => (b.values.population ?? 0) - (a.values.population ?? 0));
       calculation = `Compare total population values from the ${intent.years[0] ?? CENSUS_YEAR} ACS vintage.`;
     } else {
     const baseline = await queryCensus(BASELINE_YEAR, ['B01003_001E'], intent.state);
     const later = await queryCensus(CENSUS_YEAR, ['B01003_001E'], intent.state);
-    requestUrls = [baseline.requestUrl, later.requestUrl];
+    requests = [{ vintage: BASELINE_YEAR, url: baseline.requestUrl }, { vintage: CENSUS_YEAR, url: later.requestUrl }];
     const laterByCounty = new Map(selectedRows(later.rows, intent).map((row) => [censusName(row), numericValue(row, 'B01003_001E')]));
     rows = rankGrowth(selectedRows(baseline.rows, intent).map((row) => ({ geography: censusName(row), values: { [BASELINE_YEAR]: numericValue(row, 'B01003_001E'), [CENSUS_YEAR]: laterByCounty.get(censusName(row)) ?? null } })), BASELINE_YEAR, CENSUS_YEAR);
     calculation = `percentage change = (later - baseline) / baseline * 100; baseline=${BASELINE_YEAR}, later=${CENSUS_YEAR}`;
     }
   } else if (intent.metric === 'median_household_income') {
     const result = await queryCensus(CENSUS_YEAR, ['B19013_001E'], intent.state);
-    requestUrls = [result.requestUrl];
+    requests = [{ vintage: CENSUS_YEAR, url: result.requestUrl }];
+    const missingCounties = unmatchedCounties(result.rows, intent);
+    if (missingCounties.length) warnings.push(`No Census rows matched: ${missingCounties.join(', ')}.`);
     rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), values: { medianHouseholdIncome: numericValue(row, 'B19013_001E') } })).sort((a, b) => (b.values.medianHouseholdIncome ?? 0) - (a.values.medianHouseholdIncome ?? 0));
   } else if (intent.metric === 'work_from_home') {
     const variableIds = ['B08301_021E', 'B08301_001E'];
     const baseline = await queryCensus(BASELINE_YEAR, variableIds, intent.state);
     const later = await queryCensus(CENSUS_YEAR, variableIds, intent.state);
-    requestUrls = [baseline.requestUrl, later.requestUrl];
+    requests = [{ vintage: BASELINE_YEAR, url: baseline.requestUrl }, { vintage: CENSUS_YEAR, url: later.requestUrl }];
     const laterByCounty = new Map(selectedRows(later.rows, intent).map((row) => [censusName(row), row]));
     rows = selectedRows(baseline.rows, intent).flatMap((row) => {
       const laterRow = laterByCounty.get(censusName(row));
@@ -82,7 +91,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
     calculation = 'percentage-point change = later work-from-home share - baseline share';
   } else {
     const result = await queryCensus(CENSUS_YEAR, definition.variables.map((item) => item.id), intent.state);
-    requestUrls = [result.requestUrl];
+    requests = [{ vintage: CENSUS_YEAR, url: result.requestUrl }];
     const olderVariables = definition.variables.filter((item) => item.id.startsWith('B01001_0') && item.id !== 'B01001_001E').map((item) => item.id);
     rows = selectedRows(result.rows, intent).map((row) => {
       const total = numericValue(row, 'B01001_001E');
@@ -93,12 +102,13 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
   }
 
   const stateName = resolveStateFips(intent.state).name;
-  return { summary: buildSummary(intent, rows), rows, evidence: { dataset: definition.dataset, vintage: CENSUS_YEAR, variables: definition.variables.map((item) => ({ ...item })), geography: `${stateName} counties`, filters: { state: stateName, metric: intent.metric }, requestUrl: requestUrls.join('\n'), rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings: [] };
+  const filters = { state: stateName, metric: intent.metric, ...(intent.filters?.agingThreshold === undefined ? {} : { agingThreshold: String(intent.filters.agingThreshold) }), ...(intent.filters?.incomeThreshold === undefined ? {} : { incomeThreshold: String(intent.filters.incomeThreshold) }) };
+  return { summary: buildSummary(intent, rows), rows, evidence: { dataset: definition.dataset, vintage: CENSUS_YEAR, variables: definition.variables.map((item) => ({ ...item })), geography: `${stateName} counties`, filters, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings };
 }
 
 function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows']): string {
   const state = intent.state ?? 'the requested state';
-  if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest population in the ${state} county comparison.` : 'No valid population rows were available.';
+  if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest ${intent.operation === 'growth' ? 'population growth' : 'population'} in the ${state} county comparison.` : 'No valid population rows were available.';
   if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the named counties.` : 'No named counties were available.';
   if (intent.metric === 'work_from_home') return rows.length ? `${rows[0].geography} has the largest configured work-from-home change.` : 'No valid work-from-home rows were available.';
   return rows.length ? `${rows.length} communities meet both aging and income thresholds.` : 'No communities meet both configured thresholds.';

@@ -43,7 +43,7 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   try {
     const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics });
     parsed = modelIntent
-      ? { intent: modelIntent, text: 'I mapped your question to approved Census metrics and will show the interpretation before running it.' }
+      ? { intent: { ...modelIntent, interpretationSource: 'ollama' }, text: 'I mapped your question to approved Census metrics and will show the interpretation before running it.' }
       : parseQuestion(text);
   } catch {
     parsed = parseQuestion(text);
