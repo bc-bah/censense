@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { CensusAnswer, Message, QuestionIntent } from '../shared/contracts';
+import logoUrl from '../../assets/censussense-logo-lockup.png';
+import iconUrl from '../../assets/censussense-app-icon.png';
 
 const examples = [
+  'What is the total population of New Hampshire counties?',
   'Which counties in Virginia have experienced the largest population growth?',
+  'Compare median household income across five counties in Texas.',
   'Where has the percentage of people working from home changed the most?',
-  'Compare median household income across Fairfax County, Loudoun County, Henrico County, Chesterfield County, and Arlington County.',
-  'Which communities have both an aging population and relatively low household income?',
 ];
 
 type ApiMessage = { message: Message };
@@ -29,34 +31,37 @@ export default function App() {
   async function ask(text = draft) {
     if (!conversationId || !text.trim() || busy) return;
     setBusy(true); setDraft('');
-    const response = await fetch(`/api/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-    const data = await response.json() as ApiMessage;
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', kind: 'question', text, createdAt: new Date().toISOString() }, data.message]);
-    setPendingIntent(data.message.intent);
-    setBusy(false);
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const data = await response.json() as ApiMessage;
+      setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', kind: 'question', text, createdAt: new Date().toISOString() }, data.message]);
+      setPendingIntent(data.message.intent);
+    } finally { setBusy(false); }
   }
 
   async function confirm() {
     if (!conversationId || !pendingIntent || busy) return;
     setBusy(true);
-    const response = await fetch(`/api/conversations/${conversationId}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: pendingIntent }) });
-    const data = await response.json() as ApiMessage;
-    setMessages((current) => [...current, data.message]); setPendingIntent(undefined); setBusy(false);
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: pendingIntent }) });
+      const data = await response.json() as ApiMessage;
+      setMessages((current) => [...current, data.message]); setPendingIntent(undefined);
+    } finally { setBusy(false); }
   }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand-mark"><span className="brand-dot" />CensusSense</div><div className="status"><span className="status-light" />Local fallback active</div></header>
+    <header className="topbar"><a className="brand" href="/" aria-label="CensusSense home"><img src={logoUrl} alt="CensusSense" /></a><div className="status"><span className="status-light" />Live Census connection</div></header>
     <section className="workspace">
-      <aside className="intro-panel"><p className="eyebrow">Evidence-backed Census research</p><h1>Ask a sharper question.</h1><p className="intro-copy">Ask about an approved Census metric in your own words, for any state or territory. CensusSense interprets the request, shows its plan, and keeps the source, formula, and caveats in view.</p><div className="rule" /><p className="micro-label">Example questions</p><div className="example-list">{examples.map((example) => <button key={example} className="example" onClick={() => void ask(example)}>{example}<span>↗</span></button>)}</div></aside>
-      <section className="chat-panel"><div className="chat-heading"><div><p className="eyebrow">Research workspace</p><h2>Conversation</h2></div><span className="secure-label">Deterministic tools · v0.1</span></div>
+      <aside className="intro-panel"><div className="hero-kicker"><span className="kicker-line" />Your questions, mapped to evidence</div><h1>Find the story in the numbers.</h1><p className="intro-copy">Ask about any state or territory in plain English. CensusSense translates your question, checks the official data, and lets you see exactly how the answer was made.</p><div className="signal-row"><span>01</span><span>Interpret</span><span>02</span><span>Verify</span><span>03</span><span>Decide</span></div><div className="rule" /><p className="micro-label">Start with an example</p><div className="example-list">{examples.map((example, index) => <button key={example} className="example" onClick={() => void ask(example)}><span className="example-index">0{index + 1}</span><span>{example}</span><span className="example-arrow">↗</span></button>)}</div></aside>
+      <section className="chat-panel"><div className="chat-heading"><div><p className="eyebrow">Research workspace</p><h2>Ask CensusSense</h2></div><span className="secure-label">Catalog-guarded · live data</span></div>
         <div className="transcript" aria-live="polite">
-          {!messages.length && <div className="empty-state"><div className="empty-icon">⌁</div><h3>What should we investigate?</h3><p>Start with a Virginia county comparison. CensusSense will show its interpretation before any data is calculated.</p></div>}
+          {!messages.length && <div className="empty-state"><div className="empty-art"><img src={iconUrl} alt="" /></div><div className="empty-tag">Ready when you are</div><h3>What should we investigate?</h3><p>Ask about population, income, work, age, or another approved Census measure. We will show the interpretation before anything runs.</p></div>}
           {messages.map((item) => <MessageBubble key={item.id} item={item} evidenceOpen={evidenceOpen === item.id} onEvidence={() => setEvidenceOpen(evidenceOpen === item.id ? undefined : item.id)} />)}
-          {busy && <div className="activity"><span className="pulse" /> Checking the approved Census catalog and calculating...</div>}
+          {busy && <div className="activity"><span className="pulse" /> Interpreting your question and checking Census data...</div>}
         </div>
-        {pendingIntent && <div className="confirmation"><div><strong>Ready to run this interpretation?</strong><span>{pendingIntent.metric.replaceAll('_', ' ')} · {pendingIntent.years.join(' → ')}</span></div><button onClick={() => void confirm()}>Run analysis <span>→</span></button></div>}
-        <form className="composer" onSubmit={(event) => { event.preventDefault(); void ask(); }}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about Census data..." rows={2} disabled={busy} /><button aria-label="Send question" disabled={!draft.trim() || busy}>↑</button></form>
-        <p className="composer-note">Ask in plain English · The local model can interpret questions beyond these examples</p>
+        {pendingIntent && <div className="confirmation"><div><strong>Does this look right?</strong><span>{pendingIntent.metric.replaceAll('_', ' ')} · {pendingIntent.state ?? 'state or territory'} · {pendingIntent.years.join(' → ')}</span></div><button onClick={() => void confirm()}>Run analysis <span>→</span></button></div>}
+        <form className="composer" onSubmit={(event) => { event.preventDefault(); void ask(); }}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask anything about Census data..." rows={2} disabled={busy} /><button aria-label="Send question" disabled={!draft.trim() || busy}>↑</button></form>
+        <p className="composer-note">Plain English is welcome · You will review the interpretation first</p>
       </section>
     </section>
   </main>;
