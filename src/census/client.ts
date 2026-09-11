@@ -1,9 +1,10 @@
 import type { CensusAnswer, EvidenceRequest, QuestionIntent } from '../shared/contracts.js';
 import { BASELINE_YEAR, CENSUS_YEAR, defaultYearsForOperation, metricCatalog } from './catalog.js';
-import { rankGrowth } from './calculations.js';
+import { joinIncomeAndDiseaseRows, rankGrowth } from './calculations.js';
 import { parseCensusRows } from './responseValidation.js';
 import { resolveStateFips, resolveStateFipsList } from './states.js';
 import { getMetricDefinition, getReviewedMetric } from './reviewedCatalog.js';
+import { queryPlacesCounty } from './placesClient.js';
 
 const CENSUS_API = 'https://api.census.gov/data';
 type CensusRecord = Record<string, string | null>;
@@ -164,6 +165,18 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
     }).sort((a, b) => (b.values.percentagePointChange ?? 0) - (a.values.percentagePointChange ?? 0));
     if (droppedRows) warnings.push(`${droppedRows} counties were excluded because one or more work-from-home values were missing or invalid.`);
     calculation = 'percentage-point change = later work-from-home share - baseline share';
+  } else if (intent.metric === 'low_income_high_disease_prevalence') {
+    const incomeThreshold = intent.filters?.incomeThreshold ?? 60000;
+    const diseaseThreshold = intent.filters?.diseasePrevalenceThreshold ?? 12;
+    const incomeResult = await queryCensus(requestedYear, ['B19013_001E'], intent.state);
+    const placesResult = await queryPlacesCounty(requestedYear, 'DIABETES', intent.state);
+    requests = [{ vintage: requestedYear, url: incomeResult.requestUrl }, { vintage: requestedYear, url: placesResult.requestUrl }];
+    const incomeRows = selectedRows(incomeResult.rows, intent).map((row) => ({ geography: censusName(row), geographyId: geographyId(row), medianHouseholdIncome: numericValue(row, 'B19013_001E') }));
+    const diseaseRows = placesResult.rows.map((row) => ({ locationid: row.locationid, dataValue: row.data_value === null ? null : Number(row.data_value) }));
+    const joined = joinIncomeAndDiseaseRows(incomeRows, diseaseRows, incomeThreshold, diseaseThreshold);
+    rows = joined.rows;
+    if (joined.unmatched.length) warnings.push(`No CDC PLACES diabetes data matched: ${joined.unmatched.join(', ')}.`);
+    calculation = `Join ACS median household income and CDC PLACES diabetes prevalence by county FIPS; keep counties with income below $${incomeThreshold.toLocaleString()} and diabetes prevalence above ${diseaseThreshold}%.`;
   } else {
     const result = await queryCensus(requestedYear, definition.variables.map((item) => item.id), intent.state);
     requests = [{ vintage: requestedYear, url: result.requestUrl }];
@@ -179,7 +192,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
   }
 
   const stateName = resolveStateFips(intent.state).name;
-  const filters = { state: stateName, metric: intent.metric, ...(intent.metric === 'aging_and_income' ? { agingThreshold: String(intent.filters?.agingThreshold ?? 20), incomeThreshold: String(intent.filters?.incomeThreshold ?? 60000) } : {}) };
+  const filters = { state: stateName, metric: intent.metric, ...(intent.metric === 'aging_and_income' ? { agingThreshold: String(intent.filters?.agingThreshold ?? 20), incomeThreshold: String(intent.filters?.incomeThreshold ?? 60000) } : {}), ...(intent.metric === 'low_income_high_disease_prevalence' ? { incomeThreshold: String(intent.filters?.incomeThreshold ?? 60000), diseasePrevalenceThreshold: String(intent.filters?.diseasePrevalenceThreshold ?? 12) } : {}) };
   return { summary: buildSummary(intent, rows, requests), rows, evidence: { dataset: definition.dataset, vintage: requests.map((request) => request.vintage).join(', '), variables: definition.variables.map((item) => ({ ...item })), geography: `${stateName} counties`, filters, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings };
 }
 
@@ -190,6 +203,11 @@ function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows'], reques
   if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest ${intent.operation === 'growth' ? 'population growth' : 'population'} in the ${state} county comparison using ${vintage} ACS data.` : `No valid population rows were available for ${vintage}.`;
   if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the selected ${state} counties using ${vintage} ACS data.` : `No matching counties were available for ${vintage}.`;
   if (intent.metric === 'work_from_home') return rows.length ? `${rows[0].geography} has the largest percentage-point change in work-from-home share using ${vintage} ACS data.` : `No valid work-from-home rows were available for ${vintage}.`;
+  if (intent.metric === 'low_income_high_disease_prevalence') {
+    const incomeThreshold = intent.filters?.incomeThreshold ?? 60000;
+    const diseaseThreshold = intent.filters?.diseasePrevalenceThreshold ?? 12;
+    return rows.length ? `${rows.length} communities have median household income below $${incomeThreshold.toLocaleString()} and diabetes prevalence above ${diseaseThreshold}% using ${vintage} ACS and CDC PLACES data.` : `No communities met the $${incomeThreshold.toLocaleString()} income and ${diseaseThreshold}% diabetes prevalence thresholds using ${vintage} ACS and CDC PLACES data.`;
+  }
   const agingThreshold = intent.filters?.agingThreshold ?? 20;
   const incomeThreshold = intent.filters?.incomeThreshold ?? 60000;
   return rows.length ? `${rows.length} communities have at least ${agingThreshold}% older residents and median household income below $${incomeThreshold.toLocaleString()} using ${vintage} ACS data.` : `No communities met the ${agingThreshold}% older-resident and $${incomeThreshold.toLocaleString()} income thresholds using ${vintage} ACS data.`;

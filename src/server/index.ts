@@ -69,7 +69,8 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   } else {
   try {
     const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics: getSupportedMetricKeys() });
-    const deterministicIncomeIntent = 'intent' in fallback && fallback.intent.metric === 'median_household_income' ? fallback : undefined;
+    const deterministicMetrics = new Set(['median_household_income', 'low_income_high_disease_prevalence']);
+    const deterministicIncomeIntent = 'intent' in fallback && deterministicMetrics.has(fallback.intent.metric) ? fallback : undefined;
     parsed = modelIntent
       ? deterministicIncomeIntent ?? {
         intent: { ...modelIntent, years: modelIntent.years.length ? modelIntent.years : defaultYearsForOperation(modelIntent.operation), interpretationSource: 'ollama' },
@@ -93,6 +94,7 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   }
   const intentError = validateIntent(parsed.intent);
   if (intentError) {
+    conversation.pendingIntent = parsed.intent;
     const reply = message('assistant', 'clarification', intentError);
     conversation.messages.push(reply);
     return response.json({ message: reply });

@@ -1,4 +1,4 @@
-export type Metric = 'population' | 'work_from_home' | 'median_household_income' | 'aging_and_income' | 'poverty_rate' | (string & {});
+export type Metric = 'population' | 'work_from_home' | 'median_household_income' | 'aging_and_income' | 'poverty_rate' | 'low_income_high_disease_prevalence' | (string & {});
 export type Operation = 'compare' | 'growth' | 'change' | 'filter';
 export type InterpretationSource = 'ollama' | 'fallback';
 
@@ -22,7 +22,7 @@ export type QuestionIntent = {
   years: string[];
   operation: Operation;
   comparison?: { baselineYear?: string; laterYear?: string };
-  filters?: { agingThreshold?: number; incomeThreshold?: number };
+  filters?: { agingThreshold?: number; incomeThreshold?: number; diseasePrevalenceThreshold?: number };
   interpretationSource?: InterpretationSource;
 };
 

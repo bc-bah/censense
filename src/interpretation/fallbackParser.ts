@@ -57,7 +57,9 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
             ? `I will compare the work-from-home share across ${state} counties between ${intent.years[0]} and ${intent.years[1]}.`
             : intent.metric === 'median_household_income'
               ? `I will compare ${intent.limit ? `the top ${intent.limit} ` : ''}median household income ${intent.counties?.length ? `in ${intent.counties.join(', ')}` : `across ${state} counties`} using ${intent.years[0]} ACS data.`
-              : `I will find ${state} counties with at least 20% older residents and median household income below $60,000 in ${intent.years[0]}.` }
+              : intent.metric === 'low_income_high_disease_prevalence'
+                ? `I will find ${state} counties with median household income below $${(intent.filters?.incomeThreshold ?? 60000).toLocaleString()} and diabetes prevalence above ${intent.filters?.diseasePrevalenceThreshold ?? 12}% using ${intent.years[0]} ACS and CDC PLACES data.`
+                : `I will find ${state} counties with at least 20% older residents and median household income below $60,000 in ${intent.years[0]}.` }
       : { clarification: 'Which state or territory should I query?', pendingIntent: intent };
   };
 
@@ -86,6 +88,10 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
     const states = namedStates.length >= 2 || /\b(?:which|what(?:\s+are)?)\s+(?:the\s+)?states\b|\ball\s+states\b|\bnationwide\b/.test(normalized) ? (namedStates.length >= 2 ? namedStates : allStateNames()) : namedStates;
     const year = years[0] ?? CENSUS_YEAR;
     return clarification({ metric: 'poverty_rate', geography: 'state', states: states.length ? states : undefined, years: [year], operation: 'compare', interpretationSource: 'fallback' });
+  }
+  if (normalized.includes('income') && (normalized.includes('diabetes') || normalized.includes('disease') || normalized.includes('chronic'))) {
+    const year = years[0] ?? CENSUS_YEAR;
+    return clarification({ metric: 'low_income_high_disease_prevalence', geography: 'county', years: [year], operation: 'filter', filters: { incomeThreshold: 60000, diseasePrevalenceThreshold: 12 }, interpretationSource: 'fallback' });
   }
   if (normalized.includes('income') && (counties.length >= 1 || normalized.includes('county') || normalized.includes('counties'))) {
     const year = years[0] ?? CENSUS_YEAR;

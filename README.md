@@ -123,9 +123,12 @@ Update `.env` with your Census API key:
 PORT=3001
 CENSUS_API_KEY=your-census-api-key
 OLLAMA_URL=http://localhost:11434
+PLACES_APP_TOKEN=your-optional-cdc-places-app-token
 ```
 
 To use a different local model, add `OLLAMA_MODEL` to `.env`. If Ollama is unavailable, CensusSense falls back to deterministic interpretation for the metrics it can recognize without model assistance.
+
+`PLACES_APP_TOKEN` is optional: the CDC PLACES API (used for the low-income/high-disease-prevalence metric) is public and requires no key, but an app token raises Socrata's throttling limits.
 
 ### Run locally
 

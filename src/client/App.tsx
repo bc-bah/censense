@@ -13,6 +13,7 @@ const examples = [
   'Which counties in Virginia have experienced the largest population growth?',
   'Compare median household income across five counties in Texas.',
   'Where in Virginia has the percentage of people working from home changed the most?',
+  'Which Virginia counties have low income and high diabetes rates?',
 ];
 
 type ApiMessage = { message: Message };

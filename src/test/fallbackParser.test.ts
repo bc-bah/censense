@@ -30,6 +30,12 @@ describe('fallback parser', () => {
     const result = parseQuestion('Where has the percentage of people working from home changed the most?');
     expect('clarification' in result && result.pendingIntent?.metric).toBe('work_from_home');
   });
+  it('recognizes a low-income and high-diabetes-prevalence question with default thresholds', () => {
+    const result = parseQuestion('Which Virginia counties have low income and high diabetes rates?');
+    expect('intent' in result && result.intent.metric).toBe('low_income_high_disease_prevalence');
+    expect('intent' in result && result.intent.filters?.incomeThreshold).toBe(60000);
+    expect('intent' in result && result.intent.filters?.diseasePrevalenceThreshold).toBe(12);
+  });
   it('fills the pending metric when the user answers with a state', () => {
     const first = parseQuestion('Where has the percentage of people working from home changed the most?');
     const second = parseQuestion('Virginia', 'pendingIntent' in first ? first.pendingIntent : undefined);

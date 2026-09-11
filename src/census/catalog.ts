@@ -31,4 +31,8 @@ export const metricCatalog = {
     { id: 'B01001_049E', label: 'Female population 85 years and over', unit: 'people' },
     { id: 'B19013_001E', label: 'Median household income', unit: 'USD' },
   ] },
+  low_income_high_disease_prevalence: { label: 'Low income and high diabetes prevalence', dataset: 'ACS 5-year estimates + CDC PLACES', variables: [
+    { id: 'B19013_001E', label: 'Median household income', unit: 'USD' },
+    { id: 'DIABETES', label: 'Diabetes prevalence among adults', unit: '%' },
+  ] },
 } as const;
