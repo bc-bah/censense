@@ -20,4 +20,14 @@ describe('fallback parser', () => {
     expect('intent' in result && result.intent.years).toEqual([CENSUS_YEAR]);
     expect('text' in result && result.text).toContain(`${CENSUS_YEAR} ACS data`);
   });
+  it('keeps a recognized work-from-home metric while asking for the missing state', () => {
+    const result = parseQuestion('Where has the percentage of people working from home changed the most?');
+    expect('clarification' in result && result.pendingIntent?.metric).toBe('work_from_home');
+  });
+  it('fills the pending metric when the user answers with a state', () => {
+    const first = parseQuestion('Where has the percentage of people working from home changed the most?');
+    const second = parseQuestion('Virginia', 'pendingIntent' in first ? first.pendingIntent : undefined);
+    expect('intent' in second && second.intent.metric).toBe('work_from_home');
+    expect('intent' in second && second.intent.state).toBe('virginia');
+  });
 });

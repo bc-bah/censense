@@ -47,11 +47,12 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
           intent: { ...modelIntent, years: modelIntent.years.length ? modelIntent.years : defaultYearsForOperation(modelIntent.operation), interpretationSource: 'ollama' },
           text: `I mapped your question to approved Census metrics using ${modelIntent.years.join(' and ') || defaultYearsForOperation(modelIntent.operation).join(' and ')} ACS data. Review the interpretation before running it.`,
         }
-      : parseQuestion(text);
+      : parseQuestion(text, conversation.pendingIntent);
   } catch {
-    parsed = parseQuestion(text);
+    parsed = parseQuestion(text, conversation.pendingIntent);
   }
   if ('clarification' in parsed) {
+    conversation.pendingIntent = parsed.pendingIntent;
     const reply = message('assistant', 'clarification', parsed.clarification);
     conversation.messages.push(reply);
     return response.json({ message: reply });
