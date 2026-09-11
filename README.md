@@ -183,3 +183,7 @@ CensusSense is a focused hackathon MVP. It currently supports county-level quest
 - Incompatible datasets, units, universes, or vintages are blocked from comparison.
 - Missing or suppressed values are preserved as warnings.
 - Secrets remain server-side and `.env` must never be committed.
+
+## Collaborators
+
+- Behnido Calida
