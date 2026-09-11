@@ -4,10 +4,32 @@ import { findStateInQuestion } from '../census/states.js';
 
 export type ParseResult = { intent: QuestionIntent; text: string } | { clarification: string; pendingIntent?: QuestionIntent } | { unsupported: string };
 
+function extractCounties(question: string): string[] {
+  const explicitCounties = [...question.matchAll(/\b([A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*)*\s+(?:County|Parish|Borough|city))\b/g)]
+    .map((match) => match[1].trim());
+  if (explicitCounties.length) return explicitCounties;
+
+  const countiesIndex = question.toLowerCase().lastIndexOf('counties');
+  if (countiesIndex < 0) return [];
+
+  let list = question.slice(0, countiesIndex).trim().replace(/[.?!]+$/, '');
+  const listIntroducers = [...list.matchAll(/\b(?:across|among|including|namely)\b|:/gi)];
+  const lastIntroducer = listIntroducers.at(-1);
+  if (lastIntroducer?.index !== undefined) list = list.slice(lastIntroducer.index + lastIntroducer[0].length).trim();
+
+  const names = list.split(/\s*,\s*|\s+(?:and|&)\s+/i)
+    .map((name) => name.trim().replace(/^(?:and|&)\s+/i, ''))
+    .filter(Boolean);
+  const validName = /^[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,4}$/;
+  if (names.length < 2 || names.some((name) => !validName.test(name))) return [];
+
+  return names.map((name) => /\b(?:county|parish|borough|city)$/i.test(name) ? name : `${name} County`);
+}
+
 export function parseQuestion(question: string, pendingIntent?: QuestionIntent): ParseResult {
   const normalized = question.toLowerCase();
   const state = findStateInQuestion(question) ?? pendingIntent?.state;
-  const counties = [...question.matchAll(/\b([A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*)*\s+(?:County|Parish|Borough|city))\b/g)].map((match) => match[1].trim());
+  const counties = extractCounties(question);
   const years = [...question.matchAll(/\b(20\d{2})\b/g)].map((match) => match[1]);
   const comparisonYears = years.length >= 2 ? [years[0], years[1]] : defaultYearsForOperation('change');
   const limitMatch = normalized.match(/\b(?:top|first|highest)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+counties?\b/);
@@ -25,8 +47,13 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
             : `I will find ${state} counties with at least 20% older residents and median household income below $60,000 in ${intent.years[0]}.` }
     : { clarification: 'Which state or territory should I query?', pendingIntent: intent };
 
-  if (pendingIntent && state) {
-    return clarification({ ...pendingIntent, limit: limitValue ?? pendingIntent.limit });
+  if (pendingIntent) {
+    return clarification({
+      ...pendingIntent,
+      state,
+      counties: counties.length ? counties : pendingIntent.counties,
+      limit: limitValue ?? pendingIntent.limit,
+    });
   }
   if (normalized.includes('population') && (normalized.includes('growth') || normalized.includes('grew'))) {
     return clarification({ metric: 'population', geography: 'county', years: comparisonYears, operation: 'growth', comparison: { baselineYear: comparisonYears[0], laterYear: comparisonYears[1], }, interpretationSource: 'fallback' });

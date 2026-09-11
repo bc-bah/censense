@@ -41,4 +41,29 @@ describe('fallback parser', () => {
     const second = parseQuestion('The top five counties of Texas', 'pendingIntent' in first ? first.pendingIntent : undefined);
     expect('intent' in second && second.intent.limit).toBe(5);
   });
+  it('recognizes a natural list of named counties', () => {
+    const result = parseQuestion('Compare median household income across Fairfax, Loudoun, Henrico, Chesterfield, and Arlington counties.');
+    expect('clarification' in result && result.pendingIntent?.counties).toEqual([
+      'Fairfax County',
+      'Loudoun County',
+      'Henrico County',
+      'Chesterfield County',
+      'Arlington County',
+    ]);
+  });
+  it('retains county input while asking for a missing state', () => {
+    const first = parseQuestion('Compare median household income across five named counties.');
+    const second = parseQuestion('fairfax, loudoun, henrico, chesterfield, and arlington counties', 'pendingIntent' in first ? first.pendingIntent : undefined);
+    expect('clarification' in second && second.pendingIntent?.counties).toEqual([
+      'fairfax County',
+      'loudoun County',
+      'henrico County',
+      'chesterfield County',
+      'arlington County',
+    ]);
+
+    const third = parseQuestion('Virginia', 'pendingIntent' in second ? second.pendingIntent : undefined);
+    expect('intent' in third && third.intent.state).toBe('virginia');
+    expect('intent' in third && third.intent.counties).toHaveLength(5);
+  });
 });
