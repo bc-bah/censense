@@ -7,6 +7,7 @@ export type QuestionIntent = {
   geography: 'county';
   state?: string;
   counties?: string[];
+  limit?: number;
   years: string[];
   operation: Operation;
   comparison?: { baselineYear?: string; laterYear?: string };

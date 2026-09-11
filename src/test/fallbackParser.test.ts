@@ -30,4 +30,15 @@ describe('fallback parser', () => {
     expect('intent' in second && second.intent.metric).toBe('work_from_home');
     expect('intent' in second && second.intent.state).toBe('virginia');
   });
+  it('supports a top-five median-income comparison without named counties', () => {
+    const result = parseQuestion('Compare median household income across five counties in Texas.');
+    expect('intent' in result && result.intent.metric).toBe('median_household_income');
+    expect('intent' in result && result.intent.state).toBe('texas');
+    expect('intent' in result && result.intent.limit).toBe(5);
+  });
+  it('adds a top-five limit when the user clarifies a pending income comparison', () => {
+    const first = parseQuestion('Compare median household income across counties.');
+    const second = parseQuestion('The top five counties of Texas', 'pendingIntent' in first ? first.pendingIntent : undefined);
+    expect('intent' in second && second.intent.limit).toBe(5);
+  });
 });

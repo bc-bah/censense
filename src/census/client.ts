@@ -74,7 +74,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
     requests = [{ vintage: requestedYear, url: result.requestUrl }];
     const missingCounties = unmatchedCounties(result.rows, intent);
     if (missingCounties.length) warnings.push(`No Census rows matched: ${missingCounties.join(', ')}.`);
-    rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), values: { medianHouseholdIncome: numericValue(row, 'B19013_001E') } })).sort((a, b) => (b.values.medianHouseholdIncome ?? 0) - (a.values.medianHouseholdIncome ?? 0));
+    rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), values: { medianHouseholdIncome: numericValue(row, 'B19013_001E') } })).sort((a, b) => (b.values.medianHouseholdIncome ?? 0) - (a.values.medianHouseholdIncome ?? 0)).slice(0, intent.limit);
   } else if (intent.metric === 'work_from_home') {
     const variableIds = ['B08301_021E', 'B08301_001E'];
     const baseline = await queryCensus(baselineYear, variableIds, intent.state);
@@ -114,7 +114,7 @@ function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows'], reques
   const state = intent.state ?? 'the requested state';
   const vintage = requests.map((request) => request.vintage).join(' to ');
   if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest ${intent.operation === 'growth' ? 'population growth' : 'population'} in the ${state} county comparison using ${vintage} ACS data.` : `No valid population rows were available for ${vintage}.`;
-  if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the named counties using ${vintage} ACS data.` : `No named counties were available for ${vintage}.`;
+  if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the selected ${state} counties using ${vintage} ACS data.` : `No matching counties were available for ${vintage}.`;
   if (intent.metric === 'work_from_home') return rows.length ? `${rows[0].geography} has the largest configured work-from-home change using ${vintage} ACS data.` : `No valid work-from-home rows were available for ${vintage}.`;
   return rows.length ? `${rows.length} communities meet both aging and income thresholds using ${vintage} ACS data.` : `No communities meet both configured thresholds using ${vintage} ACS data.`;
 }

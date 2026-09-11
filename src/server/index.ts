@@ -20,7 +20,7 @@ function validateIntent(intent: QuestionIntent): string | undefined {
   try { resolveStateFips(intent.state); } catch (error) { return error instanceof Error ? error.message : 'A valid state is required.'; }
   if (!Array.isArray(intent.years) || intent.years.length === 0 || intent.years.some((year) => !/^\d{4}$/.test(year))) return 'The Census years must be supplied as four-digit years.';
   if ((intent.operation === 'growth' || intent.operation === 'change') && intent.years.length < 2) return 'This comparison requires a baseline year and a later year.';
-  if (intent.metric === 'median_household_income' && intent.operation === 'compare' && (!intent.counties || intent.counties.length < 2)) return 'A named-county income comparison requires at least two counties.';
+  if (intent.metric === 'median_household_income' && intent.operation === 'compare' && (!intent.counties || intent.counties.length < 2) && !intent.limit) return 'A named-county income comparison requires at least two counties.';
   return undefined;
 }
 
@@ -40,16 +40,18 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   if (!conversation || !text) return response.status(400).json({ error: { code: 'INVALID_INTENT', message: 'A conversation and question are required.' } });
   conversation.messages.push(message('user', 'question', text));
   let parsed: Awaited<ReturnType<typeof parseQuestion>>;
+  const fallback = parseQuestion(text, conversation.pendingIntent);
   try {
     const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics });
+    const deterministicIncomeIntent = 'intent' in fallback && fallback.intent.metric === 'median_household_income' ? fallback : undefined;
     parsed = modelIntent
-      ? {
-          intent: { ...modelIntent, years: modelIntent.years.length ? modelIntent.years : defaultYearsForOperation(modelIntent.operation), interpretationSource: 'ollama' },
-          text: `I mapped your question to approved Census metrics using ${modelIntent.years.join(' and ') || defaultYearsForOperation(modelIntent.operation).join(' and ')} ACS data. Review the interpretation before running it.`,
-        }
-      : parseQuestion(text, conversation.pendingIntent);
+      ? deterministicIncomeIntent ?? {
+        intent: { ...modelIntent, years: modelIntent.years.length ? modelIntent.years : defaultYearsForOperation(modelIntent.operation), interpretationSource: 'ollama' },
+        text: `I mapped your question to approved Census metrics using ${modelIntent.years.join(' and ') || defaultYearsForOperation(modelIntent.operation).join(' and ')} ACS data. Review the interpretation before running it.`,
+      }
+      : fallback;
   } catch {
-    parsed = parseQuestion(text, conversation.pendingIntent);
+    parsed = fallback;
   }
   if ('clarification' in parsed) {
     conversation.pendingIntent = parsed.pendingIntent;
