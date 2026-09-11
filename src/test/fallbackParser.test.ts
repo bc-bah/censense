@@ -10,4 +10,8 @@ describe('fallback parser', () => {
     const result = parseQuestion('How does income compare?');
     expect('clarification' in result).toBe(true);
   });
+  it('preserves a non-Virginia state from the question', () => {
+    const result = parseQuestion('What is the total population of New Hampshire counties?');
+    expect('intent' in result && result.intent.state).toBe('new hampshire');
+  });
 });
