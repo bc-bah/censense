@@ -1,5 +1,9 @@
 # CensusSense: Teammate Brief
 
+## Status update
+
+All four judging questions below are implemented. The approved metric catalog has since been extended with two additional metrics that follow the same guardrails: a state-level poverty-rate comparison, and a county-level "low income and high diabetes prevalence" metric that joins ACS median household income with CDC PLACES chronic-disease data by county FIPS code. The chat UI also has a model picker (top bar) that lists locally pulled Ollama models and switches the active one at runtime with no restart, useful for the model benchmark described below. See [detailed-specification.md](detailed-specification.md) for the current metric catalog and contracts.
+
 ## Mission
 
 Build a working tool for Grace, a regional economic development officer, who asks plain-English questions about Census data and needs answers she can defend in a meeting. The app must return a clear answer plus enough evidence to reproduce it from the official Census API.

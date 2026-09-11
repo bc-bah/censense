@@ -37,7 +37,7 @@ The current Ollama installation contains:
 - `mistral-nemo:latest`
 - `nomic-embed-text-v2-moe:latest`
 
-Treat model choice as a local benchmark decision, not an assumption. Measure structured-intent accuracy, tool-call compliance, response latency, and answer-grounding behavior against the four judging questions. Use the embedding model only if retrieval is actually needed; do not introduce a vector database for the MVP.
+Treat model choice as a local benchmark decision, not an assumption. Measure structured-intent accuracy, tool-call compliance, response latency, and answer-grounding behavior against the four judging questions. Use the embedding model only if retrieval is actually needed; do not introduce a vector database for the MVP. The chat UI has a model picker (backed by `GET /api/ollama/models` and `POST /api/ollama/model`) that switches the active model at runtime without a server restart, which is the intended way to run this benchmark interactively.
 
 ## Required interaction
 

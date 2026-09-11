@@ -186,7 +186,23 @@ app.post('/api/map-points', async (request, response) => {
   }
 });
 
-app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest', supportedMetrics: getSupportedMetricKeys() }));
+app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: ollama.getModel(), supportedMetrics: getSupportedMetricKeys() }));
+
+app.get('/api/ollama/models', async (_request, response) => {
+  try {
+    const models = await ollama.listModels();
+    response.json({ activeModel: ollama.getModel(), models });
+  } catch (error) {
+    response.status(502).json({ activeModel: ollama.getModel(), models: [], error: error instanceof Error ? error.message : 'Ollama is not reachable.' });
+  }
+});
+
+app.post('/api/ollama/model', (request, response) => {
+  const model = typeof request.body?.model === 'string' ? request.body.model.trim() : '';
+  if (!model) return response.status(400).json({ error: 'Provide a model name.' });
+  ollama.setModel(model);
+  response.json({ activeModel: ollama.getModel() });
+});
 
 app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
   if (error instanceof SyntaxError && 'body' in error) {

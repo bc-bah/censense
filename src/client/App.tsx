@@ -42,8 +42,30 @@ export default function App() {
   const [approvalUnit, setApprovalUnit] = useState('count');
   const [approvalGeography, setApprovalGeography] = useState<'county' | 'state'>('county');
   const [approvalMessage, setApprovalMessage] = useState('');
+  const [activeModel, setActiveModel] = useState<string>();
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelError, setModelError] = useState('');
 
-  useEffect(() => { void createConversation(); }, []);
+  useEffect(() => { void createConversation(); void loadModels(); }, []);
+
+  async function loadModels() {
+    try {
+      const response = await fetch('/api/ollama/models');
+      const data = await response.json() as { activeModel?: string; models?: string[]; error?: string };
+      setActiveModel(data.activeModel);
+      setAvailableModels(data.models ?? []);
+      setModelError(data.models?.length ? '' : data.error ?? 'Ollama is not reachable.');
+    } catch {
+      setModelError('Ollama is not reachable.');
+    }
+  }
+
+  async function switchModel(model: string) {
+    if (!model || model === activeModel) return;
+    const response = await fetch('/api/ollama/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }) });
+    const data = await response.json() as { activeModel?: string };
+    if (data.activeModel) setActiveModel(data.activeModel);
+  }
 
   async function createConversation() {
     const response = await fetch('/api/conversations', { method: 'POST' });
@@ -115,7 +137,7 @@ export default function App() {
   }
 
   return <main className="app-shell">
-    <header className="topbar"><a className="brand" href="/" aria-label="CensusSense home"><img src={logoUrl} alt="CensusSense" /></a><div className="status"><span className="status-light" />Live Census connection</div></header>
+    <header className="topbar"><a className="brand" href="/" aria-label="CensusSense home"><img src={logoUrl} alt="CensusSense" /></a><div className="topbar-right"><div className="model-picker" title={modelError || 'Active Ollama model'}><span className="model-picker-dot" style={{ background: modelError ? 'var(--muted)' : 'var(--teal)' }} />{availableModels.length ? <select value={activeModel ?? ''} onChange={(event) => void switchModel(event.target.value)} aria-label="Active Ollama model">{!availableModels.includes(activeModel ?? '') && activeModel && <option value={activeModel}>{activeModel}</option>}{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select> : <span>{activeModel ?? 'Fallback interpretation only'}</span>}</div><div className="status"><span className="status-light" />Live Census connection</div></div></header>
     <section className="workspace">
       <aside className="intro-panel"><div className="hero-kicker"><span className="kicker-line" />Your questions, mapped to evidence</div><h1>Find the story in the numbers.</h1><p className="intro-copy">Ask about any state or territory in plain English. CensusSense translates your question, checks the official data, and lets you see exactly how the answer was made.</p><div className="signal-row"><span>01</span><span>Interpret</span><span>02</span><span>Verify</span><span>03</span><span>Decide</span></div><div className="rule" /><p className="micro-label">Start with an example</p><div className="example-list">{examples.map((example, index) => <button key={example} className="example" disabled={!conversationId || busy} onClick={() => void ask(example)}><span className="example-index">0{index + 1}</span><span>{example}</span><span className="example-arrow">↗</span></button>)}</div><div className="catalog-browser"><CatalogNetwork activeTerm={activeCatalogTerm} onTermSelect={(term) => void searchCatalogTerm(term)} results={catalogResults} busy={catalogBusy} />{catalogResults.length > 0 && <div className="catalog-results">{catalogResults.map((variable) => <div className="catalog-result" key={variable.id}><strong>{variable.label}</strong><span>{variable.id} · {variable.concept ?? variable.group ?? 'ACS variable'}</span><small>Review required before execution</small><button onClick={() => { setApprovalCandidate(variable); setApprovalKey(variable.id.toLowerCase().replace(/[^a-z0-9]+/g, '_')); setApprovalMessage(''); }}>Review and approve direct metric</button></div>)}</div>}{approvalCandidate && <form className="approval-form" onSubmit={approveCandidate}><strong>Approve direct metric</strong><span>{approvalCandidate.id} · {approvalCandidate.label}</span><input value={approvalKey} onChange={(event) => setApprovalKey(event.target.value)} placeholder="metric_key" aria-label="Metric key" /><select value={approvalGeography} onChange={(event) => setApprovalGeography(event.target.value as 'county' | 'state')} aria-label="Metric geography"><option value="county">County comparison</option><option value="state">State comparison</option></select><input value={approvalUnit} onChange={(event) => setApprovalUnit(event.target.value)} placeholder="Unit, e.g. people" aria-label="Metric unit" /><button type="submit">Approve for direct comparison</button><small>Only the verified raw value is used. Derived formulas require a separate review.</small></form>}{approvalMessage && <p className="approval-message">{approvalMessage}</p>}</div></aside>
       <section className="chat-panel"><div className="chat-heading"><div><p className="eyebrow">Research workspace</p><h2>Ask CensusSense</h2></div><div className="chat-heading-actions"><button className="download-transcript" onClick={downloadTranscript} disabled={!messages.length}>Download transcript ↓</button><span className="secure-label">Catalog-guarded · live data</span></div></div>

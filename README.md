@@ -44,6 +44,7 @@ The MVP supports allowlisted county- and state-level analyses across U.S. states
 | Median household income | "Compare median household income across Fairfax, Loudoun, Henrico, Chesterfield, and Arlington counties." | Returns a named-county comparison. |
 | Aging and income | "Which communities have both an aging population and relatively low household income?" | Applies documented age-share and income thresholds. |
 | Poverty rate | "Which states have the highest poverty rates?" | Compares state-level poverty rates using the approved ACS variables. |
+| Low income and high diabetes prevalence | "Which Virginia counties have low income and high diabetes rates?" | Joins ACS median household income with CDC PLACES diabetes prevalence by county FIPS and filters by both thresholds. |
 
 Requests outside the approved metric catalog or geography boundary receive an explicit clarification or unsupported response rather than a guessed answer. The catalog browser can search official ACS variable metadata, but discovered variables are review-only until their universe, geography, formula, and tests are added to the approved catalog. The model cannot select arbitrary Census variables or construct unrestricted API queries.
 
@@ -130,6 +131,10 @@ To use a different local model, add `OLLAMA_MODEL` to `.env`. If Ollama is unava
 
 `PLACES_APP_TOKEN` is optional: the CDC PLACES API (used for the low-income/high-disease-prevalence metric) is public and requires no key, but an app token raises Socrata's throttling limits.
 
+### Switching models at runtime
+
+`OLLAMA_MODEL` only sets the starting model. The chat UI's top bar includes a model picker that lists every model currently pulled in your local Ollama installation (via `GET /api/ollama/models`) and lets you switch the active one with a click (via `POST /api/ollama/model`) — no `.env` edit or server restart required. The picker shows a fallback-only indicator when Ollama isn't reachable. Switching models only changes which model interprets future questions; it has no effect on the deterministic fallback parser, Census/CDC calculations, or evidence.
+
 ### Run locally
 
 ```powershell
@@ -155,7 +160,7 @@ npm test
 | Local adapter | Node.js, Express |
 | Language interpretation | Ollama with JSON-constrained output |
 | Validation | Zod and typed application contracts |
-| Authoritative data | U.S. Census Bureau ACS 5-year API |
+| Authoritative data | U.S. Census Bureau ACS 5-year API, CDC PLACES county health data |
 | Verification | Vitest |
 
 ## Repository guide

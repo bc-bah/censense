@@ -4,9 +4,13 @@ import { CENSUS_YEAR, BASELINE_YEAR, defaultYearsForOperation } from '../census/
 export type OllamaClient = {
   generateIntent(input: { question: string; messages: Message[]; supportedMetrics: string[] }): Promise<QuestionIntent | null>;
   explainVerifiedAnswer(input: { question: string; answer: CensusAnswer; followUp?: string }): Promise<string>;
+  getModel(): string;
+  setModel(model: string): void;
+  listModels(): Promise<string[]>;
 };
 
 export function createOllamaClient(baseUrl = process.env.OLLAMA_URL ?? 'http://localhost:11434'): OllamaClient {
+  let activeModel = process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest';
   return {
     async generateIntent({ question, messages, supportedMetrics }) {
       if (!baseUrl) return null;
@@ -15,7 +19,7 @@ export function createOllamaClient(baseUrl = process.env.OLLAMA_URL ?? 'http://l
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(20_000),
         body: JSON.stringify({
-          model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest',
+          model: activeModel,
           stream: false,
           format: 'json',
           options: { temperature: 0 },
@@ -41,5 +45,13 @@ export function createOllamaClient(baseUrl = process.env.OLLAMA_URL ?? 'http://l
       return { ...candidate, years } as QuestionIntent;
     },
     async explainVerifiedAnswer({ answer }) { return answer.summary; },
+    getModel() { return activeModel; },
+    setModel(model) { activeModel = model; },
+    async listModels() {
+      const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) throw new Error(`Ollama returned ${response.status} listing models.`);
+      const payload = await response.json() as { models?: Array<{ name: string }> };
+      return (payload.models ?? []).map((entry) => entry.name);
+    },
   };
 }

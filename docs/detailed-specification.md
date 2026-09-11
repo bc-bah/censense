@@ -1,77 +1,74 @@
 # CensusSense Detailed Development Specification
 
-**Status:** Proposed  
+**Status:** Implemented (MVP plus poverty-rate and health-outcome extensions); sections below marked "Current status" note remaining gaps between this spec and the code.  
 **Basis:** [High-Level Architecture](high-level-architecture.md)  
 **Audience:** Development team  
 **Last updated:** 2026-09-11
 
 ## 1. Product Contract
 
-CensusSense accepts a plain-English Census question and returns a conversational, evidence-backed answer. The system must be useful when Ollama is available and still support the four judging questions through a deterministic fallback parser when it is not.
+CensusSense accepts a plain-English Census question and returns a conversational, evidence-backed answer. The system must be useful when Ollama is available and still support the four original judging questions through a deterministic fallback parser when it is not. The approved metric catalog has since grown beyond those four to include a state-level poverty comparison and a combined Census/CDC health-outcome metric (see below).
 
-### Supported judging questions
+### Supported metrics
 
 | Key | User intent | Required operation |
 |---|---|---|
-| `population_growth` | Rank Virginia counties by population growth | Compare two population vintages and rank growth |
-| `work_from_home_change` | Find where work-from-home percentage changed most | Compare two percentages across the same geographies |
+| `population` | Rank counties by population growth, or compare totals | Compare two population vintages and rank growth, or compare one vintage |
+| `work_from_home` | Find where work-from-home percentage changed most | Compare two percentages across the same geographies |
 | `median_household_income` | Compare income across named counties | Retrieve one income metric for each named county |
-| `aging_and_income` | Find communities with aging populations and low income | Retrieve two metrics and apply documented filters |
+| `aging_and_income` | Find communities with aging populations and low income | Retrieve two ACS metrics and apply documented thresholds |
+| `poverty_rate` | Compare poverty rate across named states | State-level comparison using ACS poverty variables |
+| `low_income_high_disease_prevalence` | Find counties with low income and high diabetes prevalence | Join an ACS income variable with a CDC PLACES diabetes-prevalence measure by county FIPS and apply documented thresholds |
 
-Anything outside the supported catalog must receive an explicit unsupported response.
+Only `population` and `poverty_rate` support the `growth`/`change`/state comparison shown above; every metric ultimately resolves through `getMetricDefinition()`, which also recognizes metrics registered at runtime via the catalog-review endpoint (see Section 4). Anything outside the resolvable catalog must receive an explicit unsupported response.
 
 ## 2. Runtime and Repository Shape
 
-Recommended initial structure:
+Actual structure:
 
 ```text
 package.json
 tsconfig.json
+tsconfig.server.json
 vite.config.ts
 
 src/
   client/
-    api.ts
     App.tsx
-    styles.css
-    components/
-      ChatTranscript.tsx
-      ChatComposer.tsx
-      InterpretationMessage.tsx
-      ToolActivity.tsx
-      AnswerMessage.tsx
-      ResultsTable.tsx
-      EvidencePanel.tsx
-      StatusMessage.tsx
+    CatalogNetwork.tsx
+    ResultChart.tsx
+    StoryMap.tsx
+    main.tsx
+    transcript.ts
+    *.css
   server/
     index.ts
-    conversationStore.ts
+    intentValidation.ts
     ollamaClient.ts
-    orchestrator.ts
-    schemas.ts
-    tools.ts
   census/
     catalog.ts
+    reviewedCatalog.ts
     client.ts
+    placesClient.ts
     geographies.ts
+    states.ts
+    metadata.ts
     calculations.ts
     responseValidation.ts
+    placesResponseValidation.ts
   interpretation/
     fallbackParser.ts
-    prompts.ts
   shared/
     contracts.ts
-    errors.ts
   test/
-    fixtures/
     calculations.test.ts
-    censusClient.test.ts
     fallbackParser.test.ts
-    judgingQuestions.test.ts
-    schemas.test.ts
+    intentValidation.test.ts
+    responseValidation.test.ts
+    placesResponseValidation.test.ts
 ```
 
-The browser uses the server adapter through HTTP. The server adapter calls Ollama and the Census API. Do not put an Ollama API key, unrestricted Census query builder, or authoritative calculation in the browser.
+The browser uses the server adapter through HTTP. The server adapter calls Ollama, the Census API, and the CDC PLACES API. Do not put an Ollama API key, unrestricted Census query builder, or authoritative calculation in the browser. `src/census/geographies.ts` predates the current state-driven geography resolution in `states.ts` and is unused dead code kept only for historical reference; `resolveStateFips()`/`resolveStateFipsList()` in `states.ts` are the active geography resolvers for any U.S. state or territory.
 
 ## 3. Conversation State
 
@@ -209,6 +206,26 @@ Request:
 
 The server must validate this intent again. The client confirmation is not trusted.
 
+### `GET /api/catalog/search`
+
+Searches official ACS variable metadata by keyword (`q`, minimum two characters) and vintage (`year`, default `2023`). Returns matching variables with `reviewRequired: true` — search results are discovery-only and are never used to build a request until approved.
+
+### `POST /api/catalog/approve`
+
+Request: `{ id, key, label, geography, unit, year }` — an ACS variable ID, a new lowercase-with-underscores metric key, a display label, `county` or `state` geography, a unit, and a four-digit vintage. The server re-validates the variable against Census metadata (must be a numeric `int`/`float` predicate type), then calls `registerReviewedMetric()` to add it to the in-memory reviewed-metric registry for the running server process. Reviewed metrics support only direct numeric comparisons (no derived formulas) and are cleared on restart; they are a separate mechanism from the first-class metrics defined in `metricCatalog` (Section 8).
+
+### `GET /api/ollama/models`
+
+Calls Ollama's native `GET /api/tags` to list locally pulled models. Returns `{ activeModel, models }`; if Ollama is unreachable, returns `{ activeModel, models: [], error }` with a `502` status so the client can show a fallback-only state instead of retrying indefinitely.
+
+### `POST /api/ollama/model`
+
+Request: `{ model }`. Sets the in-memory active model used by every subsequent `generateIntent()` call for the running server process — no restart required. Returns `{ activeModel }`. This does not persist across a server restart (falls back to `OLLAMA_MODEL`/`mistral-nemo:latest`) and does not affect the deterministic fallback parser or any Census/CDC calculation logic.
+
+### `GET /api/health`
+
+Returns `{ ok, fallback, ollama, model, supportedMetrics }`, where `model` reflects the live active model (`ollama.getModel()`), not a static environment value.
+
 ## 5. Shared Intent Contract
 
 ```ts
@@ -216,15 +233,21 @@ type Metric =
   | "population"
   | "work_from_home"
   | "median_household_income"
-  | "aging_and_income";
+  | "aging_and_income"
+  | "poverty_rate"
+  | "low_income_high_disease_prevalence"
+  | (string & {}); // also accepts runtime-registered reviewed-metric keys
 
 type Operation = "compare" | "growth" | "change" | "filter";
+type InterpretationSource = "ollama" | "fallback";
 
 type QuestionIntent = {
   metric: Metric;
-  geography: "county";
+  geography: "county" | "state";
   state?: string;
+  states?: string[];
   counties?: string[];
+  limit?: number;
   years: string[];
   operation: Operation;
   comparison?: {
@@ -234,24 +257,26 @@ type QuestionIntent = {
   filters?: {
     agingThreshold?: number;
     incomeThreshold?: number;
+    diseasePrevalenceThreshold?: number;
   };
+  interpretationSource?: InterpretationSource;
 };
 ```
 
-### Intent validation rules
+### Intent validation rules (`validateIntent()` in `src/server/index.ts`)
 
-- `metric` must be in the metric catalog.
-- `geography` must be `county` for the MVP.
-- `years` must contain the number of years required by the metric.
-- A growth or change operation requires distinct baseline and later years.
-- Named county comparisons require at least two counties.
-- State and county names must resolve through the geography catalog.
-- Thresholds for `aging_and_income` must be explicit in the intent or supplied by configured defaults shown to the user.
-- Unknown fields must be rejected or stripped before tool dispatch.
+- `metric` must resolve via `getMetricDefinition()` (first-class catalog entry or a runtime-reviewed metric).
+- `geography` must be `county` or `state`.
+- A `state` geography requires at least two named `states` that resolve through `resolveStateFipsList()`.
+- A `county` geography requires a single `state` that resolves through `resolveStateFips()`.
+- `years` must be four-digit strings.
+- A `growth` or `change` operation requires at least two years.
+- A `median_household_income` compare operation requires at least one named county or a `limit`.
+- Thresholds for `aging_and_income` and `low_income_high_disease_prevalence` fall back to documented defaults (20% / $60,000, and $60,000 / 12%, respectively) when omitted from the intent; the defaults are always disclosed to the user in the interpretation text and evidence filters.
 
 ## 6. Ollama Adapter
 
-The adapter should expose one model-independent interface:
+The adapter exposes one model-independent interface, plus runtime model management:
 
 ```ts
 type OllamaClient = {
@@ -259,16 +284,19 @@ type OllamaClient = {
     question: string;
     messages: Message[];
     supportedMetrics: string[];
-  }): Promise<ModelIntentResult>;
+  }): Promise<QuestionIntent | null>;
   explainVerifiedAnswer(input: {
     question: string;
     answer: CensusAnswer;
     followUp?: string;
   }): Promise<string>;
+  getModel(): string;
+  setModel(model: string): void;
+  listModels(): Promise<string[]>;
 };
 ```
 
-The adapter must configure the model for low-temperature, structured output where supported. The model output is untrusted text until parsed and validated. The system prompt must state that the model may only use the supplied metric catalog and may not invent data.
+The adapter must configure the model for low-temperature, structured output where supported. The model output is untrusted text until parsed and validated. The system prompt must state that the model may only use the supplied metric catalog and may not invent data. `getModel()`/`setModel()` hold a mutable in-memory active model (seeded from `OLLAMA_MODEL`, default `mistral-nemo:latest`); `generateIntent()` always reads the current value, so switching models takes effect on the next question with no server restart. `listModels()` calls Ollama's `GET /api/tags` to enumerate locally pulled models for the UI's model picker (Section 10) and the `GET /api/ollama/models` endpoint (Section 4).
 
 ### Model selection
 
@@ -286,9 +314,11 @@ Record for each model:
 - Grounding quality of explanations
 - Median response latency on the demo machine
 
-The default model is a configuration value, not hard-coded into UI logic. `nomic-embed-text-v2-moe:latest` is reserved for a future retrieval need and is not part of the MVP request path.
+The default model is a configuration value, not hard-coded into UI logic. `nomic-embed-text-v2-moe:latest` is reserved for a future retrieval need and is not part of the MVP request path. The active model can also be changed at runtime from the chat UI's model picker or by calling `POST /api/ollama/model`, which is useful for running this benchmark interactively without editing `.env` or restarting the server.
 
 ## 7. Deterministic Tool Contracts
+
+The conceptual tool boundary below still holds, but the implementation consolidates these steps inside `runCensusIntent()` in `src/census/client.ts` (plus `queryPlacesCounty()` in `src/census/placesClient.ts` for the CDC PLACES metric) rather than as four separate named tools. The model never calls these directly — it only proposes a `QuestionIntent`, which the server validates and then dispatches.
 
 ### `resolve_geographies`
 
@@ -351,23 +381,17 @@ Builds the evidence object from validated request and calculation data. It must 
 
 ## 8. Census Catalog
 
-Every catalog entry must define:
+The implemented catalog (`metricCatalog` in `src/census/catalog.ts`) uses a simpler shape than originally proposed:
 
 ```ts
 type MetricDefinition = {
-  key: string;
   label: string;
-  datasetKey: string;
-  allowedGeography: "county";
-  variableIds: string[];
-  universe: string;
-  unit: string;
-  calculation?: string;
-  caveats: string[];
+  dataset: string; // e.g. "ACS 5-year estimates" or "ACS 5-year estimates + CDC PLACES"
+  variables: Array<{ id: string; label: string; unit: string }>;
 };
 ```
 
-The catalog is the only source used to construct Census requests. Before implementation, the data-layer owner must verify each variable ID and label against Census metadata and record the chosen ACS product and vintage.
+For Census-only metrics, `variables[].id` is an ACS table ID (e.g. `B19013_001E`). For `low_income_high_disease_prevalence`, the catalog lists both the ACS income variable and a CDC PLACES `measureid` (`DIABETES`) side by side — the calculation branch in `runCensusIntent()` queries each source separately and joins the results by county FIPS. `getMetricDefinition()` in `src/census/reviewedCatalog.ts` also folds in any metric registered at runtime via `POST /api/catalog/approve` (see Section 4), using the separate `ReviewedMetricDefinition` shape documented there. The catalog is the only source used to construct Census and PLACES requests; the model cannot select arbitrary variables.
 
 ## 9. Answer and Evidence Contract
 
@@ -376,13 +400,15 @@ type CensusAnswer = {
   summary: string;
   rows: Array<{
     geography: string;
+    geographyId?: { stateFips: string; countyFips?: string };
     values: Record<string, number | null>;
-    marginOfError?: Record<string, number | null>;
     rank?: number;
   }>;
   evidence: Evidence;
   warnings: string[];
 };
+
+type EvidenceRequest = { vintage: string; url: string };
 
 type Evidence = {
   dataset: string;
@@ -395,14 +421,16 @@ type Evidence = {
   }>;
   geography: string;
   filters: Record<string, string>;
-  requestUrl: string;
+  requests: EvidenceRequest[];
   rawValues: Array<Record<string, unknown>>;
   calculation: string;
   retrievedAt: string;
 };
 ```
 
-The UI must make all evidence fields inspectable without requiring Grace to read raw JSON. The raw source URL must be clickable, and the table must agree with the summary.
+`requests` holds one entry per API call needed to produce the answer \u2014 for example, one Census request per ACS vintage for a growth comparison, or one Census request plus one CDC PLACES request for `low_income_high_disease_prevalence`. Each entry's `url` is the public request URL with any API key or app token stripped before it is stored.
+
+The UI must make all evidence fields inspectable without requiring Grace to read raw JSON. Every request URL must be clickable, and the table must agree with the summary.
 
 ## 10. UI Requirements
 
@@ -410,14 +438,15 @@ The primary screen contains:
 
 - Conversation transcript
 - Composer with submit and cancel behavior
-- Example question prompts for the four judging questions
+- Example question prompts, including the four original judging questions plus the poverty-rate and income/diabetes-prevalence extensions
 - Interpretation or clarification message
 - Human-readable tool activity
 - Answer summary
 - Results table for multiple geographies
 - Warnings and uncertainty indicators
-- Keyboard-accessible “View evidence” control
-- Evidence panel with dataset, vintage, variables, geography, formula, raw values, and URL
+- Keyboard-accessible "View evidence" control
+- Evidence panel with dataset, vintage, variables, geography, formula, raw values, and one request URL per API call
+- Model picker in the top bar showing the active Ollama model and letting the user switch to any other locally pulled model (via `GET`/`POST /api/ollama/model(s)`); shows a fallback-only indicator when Ollama is unreachable
 
 Required states:
 
@@ -458,6 +487,8 @@ type AppError = {
 Errors shown to Grace should explain the next action. Internal stack traces and raw prompts must not be displayed.
 
 ## 12. Testing Specification
+
+**Current status:** the implemented test suite (`src/test/*.test.ts`) covers unit-level parsing, calculation, and response-validation behavior with inline fixtures rather than a separate `fixtures/` directory or a dedicated judging-question test file; each judging question and the newer metrics are covered as individual `it()` cases inside `fallbackParser.test.ts` and `calculations.test.ts`. The goals below remain the target for coverage depth.
 
 ### Unit tests
 
