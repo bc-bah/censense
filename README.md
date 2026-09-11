@@ -29,13 +29,13 @@ CensusSense turns that workflow into a guided conversation:
 |---|---|
 | Make Census data approachable | A chat-first interface accepts natural-language questions. |
 | Prevent confident but unsupported answers | The model interprets intent; allowlisted application code selects variables and performs calculations. |
-| Make results reviewable | Every answer preserves its dataset, vintage, variables, formula, raw values, warnings, and source URL. |
+| Make results reviewable | Every answer preserves its dataset, vintage, variables, formula, raw values, warnings, and separate source requests by vintage. |
 | Keep the demo resilient | A deterministic parser supports the core question set when Ollama is unavailable. |
 | Protect credentials | The Census API key stays in the local server and is never sent to the browser. |
 
 ## What it can answer
 
-The MVP supports county-level analysis across U.S. states and territories for four focused research questions:
+The MVP supports allowlisted county- and state-level analyses across U.S. states and territories. The four county analyses below are the original judging scenarios, not hardcoded question branches:
 
 | Analysis | Example question | Result |
 |---|---|---|
@@ -43,8 +43,9 @@ The MVP supports county-level analysis across U.S. states and territories for fo
 | Work-from-home change | "Where has the percentage of people working from home changed the most?" | Calculates and ranks percentage-point change. |
 | Median household income | "Compare median household income across Fairfax, Loudoun, Henrico, Chesterfield, and Arlington counties." | Returns a named-county comparison. |
 | Aging and income | "Which communities have both an aging population and relatively low household income?" | Applies documented age-share and income thresholds. |
+| Poverty rate | "Which states have the highest poverty rates?" | Compares state-level poverty rates using the approved ACS variables. |
 
-Requests outside the approved metric catalog receive an explicit clarification or unsupported response rather than a guessed answer.
+Requests outside the approved metric catalog or geography boundary receive an explicit clarification or unsupported response rather than a guessed answer. The model can interpret new wording and unseen questions, but it cannot select arbitrary Census variables or construct unrestricted API queries.
 
 ## How it works
 
@@ -91,7 +92,7 @@ The model cannot choose arbitrary Census variables, construct unrestricted queri
 2. Inspect the proposed metric, years, geography, and operation.
 3. Choose **Run analysis**.
 4. Review the comparison table and any warnings.
-5. Expand **View evidence** to inspect the dataset, vintage, geography, variables, calculation, and source request.
+5. Expand **View evidence** to inspect the dataset, vintage, geography, variables, calculation, filters, raw values, warnings, and one source request per ACS vintage.
 
 ## Getting started
 
@@ -118,7 +119,7 @@ CENSUS_API_KEY=your-census-api-key
 OLLAMA_URL=http://localhost:11434
 ```
 
-To use a different local model, add `OLLAMA_MODEL` to `.env`. If Ollama is unavailable, CensusSense falls back to deterministic interpretation for the supported demo questions.
+To use a different local model, add `OLLAMA_MODEL` to `.env`. If Ollama is unavailable, CensusSense falls back to deterministic interpretation for the metrics it can recognize without model assistance.
 
 ### Run locally
 

@@ -1,0 +1,54 @@
+/* Keep the app frame fixed while the conversation remains scrollable. */
+.app-shell {
+  height: 100vh;
+  min-height: 0;
+}
+
+.workspace {
+  height: calc(100vh - 82px);
+  min-height: 0;
+}
+
+.chat-panel {
+  min-height: 0;
+  height: 100%;
+}
+
+.transcript {
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.example:disabled {
+  opacity: .45;
+  cursor: wait;
+  transform: none;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    height: auto;
+  }
+
+  .chat-panel {
+    height: min(760px, calc(100vh - 150px));
+    min-height: 600px;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .workspace {
+    height: auto;
+  }
+
+  .chat-panel {
+    height: min(720px, calc(100vh - 110px));
+    min-height: 560px;
+  }
+}

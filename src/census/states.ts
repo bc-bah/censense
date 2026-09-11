@@ -14,6 +14,10 @@ export function resolveStateFipsList(states: string[]): { name: string; fips: st
   return states.map((state) => resolveStateFips(state));
 }
 
+export function allStateNames(): string[] {
+  return Object.keys(stateFips);
+}
+
 export function findStateInQuestion(question: string): string | undefined {
   const normalized = question.toLowerCase();
   return Object.keys(stateFips).sort((a, b) => b.length - a.length).find((state) => normalized.includes(state));

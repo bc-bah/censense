@@ -32,7 +32,7 @@ export type Evidence = {
 
 export type CensusAnswer = {
   summary: string;
-  rows: Array<{ geography: string; values: Record<string, number | null>; rank?: number }>;
+  rows: Array<{ geography: string; geographyId?: { stateFips: string; countyFips?: string }; values: Record<string, number | null>; rank?: number }>;
   evidence: Evidence;
   warnings: string[];
 };

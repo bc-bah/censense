@@ -23,8 +23,8 @@ export function createOllamaClient(baseUrl = process.env.OLLAMA_URL ?? 'http://l
             'You interpret Census questions for a guarded data application.',
             'Return only one JSON object. Never return Census values, variable IDs, URLs, or formulas.',
             `The only approved metric keys are: ${supportedMetrics.join(', ')}.`,
-            `Use geography county. If the question omits a year, use ${CENSUS_YEAR}; for growth or change, use ${BASELINE_YEAR} as the baseline and ${CENSUS_YEAR} as the later year. Ask for clarification by returning null when metric, geography, or operation is ambiguous.`,
-            'The JSON schema is: {"metric":"approved key","geography":"county","state":"Virginia","counties":["names"],"years":["YYYY"],"operation":"compare|growth|change|filter","comparison":{"baselineYear":"YYYY","laterYear":"YYYY"},"filters":{"agingThreshold":number,"incomeThreshold":number}}.',
+            `Use county geography for county metrics and state geography for state metrics. If the question omits a year, use ${CENSUS_YEAR}; for growth or change, use ${BASELINE_YEAR} as the baseline and ${CENSUS_YEAR} as the later year. Extract the state or states from the question; never default to a particular state. Ask for clarification by returning null when metric, geography, state, or operation is ambiguous.`,
+            'The JSON schema is: {"metric":"approved key","geography":"county|state","state":"state from question","states":["states for state comparison"],"counties":["names"],"limit":number,"years":["YYYY"],"operation":"compare|growth|change|filter","comparison":{"baselineYear":"YYYY","laterYear":"YYYY"},"filters":{"agingThreshold":number,"incomeThreshold":number}}.',
             `Question: ${question}`,
             `Recent conversation: ${messages.slice(-6).map((item) => `${item.role}: ${item.text}`).join('\n')}`,
           ].join('\n'),
@@ -34,7 +34,7 @@ export function createOllamaClient(baseUrl = process.env.OLLAMA_URL ?? 'http://l
       const payload = await response.json() as { response?: string };
       if (!payload.response) return null;
       const candidate = JSON.parse(payload.response) as Partial<QuestionIntent>;
-      if (!supportedMetrics.includes(String(candidate.metric)) || candidate.geography !== 'county' || !candidate.operation) return null;
+      if (!supportedMetrics.includes(String(candidate.metric)) || !['county', 'state'].includes(String(candidate.geography)) || !candidate.operation) return null;
       const years = Array.isArray(candidate.years) && candidate.years.length
         ? candidate.years
         : defaultYearsForOperation(candidate.operation);

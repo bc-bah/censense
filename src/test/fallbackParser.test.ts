@@ -7,6 +7,12 @@ describe('fallback parser', () => {
     const result = parseQuestion('Which counties in Virginia have experienced the largest population growth?');
     expect('intent' in result && result.intent.metric).toBe('population');
   });
+  it('recognizes a growth question that uses "grew" without repeating population', () => {
+    const result = parseQuestion('Which counties in Virginia grew the most between 2019 and 2023?');
+    expect('intent' in result && result.intent.metric).toBe('population');
+    expect('intent' in result && result.intent.operation).toBe('growth');
+    expect('intent' in result && result.intent.years).toEqual(['2019', '2023']);
+  });
   it('asks for names when income comparison is incomplete', () => {
     const result = parseQuestion('How does income compare?');
     expect('clarification' in result).toBe(true);
@@ -51,6 +57,11 @@ describe('fallback parser', () => {
       'Arlington County',
     ]);
   });
+  it('supports a single-county income lookup', () => {
+    const result = parseQuestion('What is the median household income of Fairfax County in Virginia?');
+    expect('intent' in result && result.intent.metric).toBe('median_household_income');
+    expect('intent' in result && result.intent.counties).toEqual(['Fairfax County']);
+  });
   it('retains county input while asking for a missing state', () => {
     const first = parseQuestion('Compare median household income across five named counties.');
     const second = parseQuestion('fairfax, loudoun, henrico, chesterfield, and arlington counties', 'pendingIntent' in first ? first.pendingIntent : undefined);
@@ -82,5 +93,10 @@ describe('fallback parser', () => {
     expect('intent' in result && result.intent.metric).toBe('poverty_rate');
     expect('intent' in result && result.intent.geography).toBe('state');
     expect('intent' in result && result.intent.states).toEqual(['ohio', 'michigan', 'pennsylvania']);
+  });
+  it('recognizes a broad poverty question as an all-state comparison', () => {
+    const result = parseQuestion('What are the states with the highest poverty rates?');
+    expect('intent' in result && result.intent.metric).toBe('poverty_rate');
+    expect('intent' in result && result.intent.states?.length).toBeGreaterThan(2);
   });
 });

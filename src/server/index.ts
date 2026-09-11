@@ -6,6 +6,7 @@ import { parseQuestion } from '../interpretation/fallbackParser.js';
 import { runCensusIntent } from '../census/client.js';
 import { defaultYearsForOperation, metricCatalog } from '../census/catalog.js';
 import { createOllamaClient } from './ollamaClient.js';
+import { sameIntent } from './intentValidation.js';
 import { resolveStateFips, resolveStateFipsList } from '../census/states.js';
 
 const app = express();
@@ -25,7 +26,7 @@ function validateIntent(intent: QuestionIntent): string | undefined {
   }
   if (!Array.isArray(intent.years) || intent.years.length === 0 || intent.years.some((year) => !/^\d{4}$/.test(year))) return 'The Census years must be supplied as four-digit years.';
   if ((intent.operation === 'growth' || intent.operation === 'change') && intent.years.length < 2) return 'This comparison requires a baseline year and a later year.';
-  if (intent.metric === 'median_household_income' && intent.operation === 'compare' && (!intent.counties || intent.counties.length < 2) && !intent.limit) return 'A named-county income comparison requires at least two counties.';
+  if (intent.metric === 'median_household_income' && intent.operation === 'compare' && (!intent.counties || intent.counties.length < 1) && !intent.limit) return 'Name at least one county for a median household income lookup.';
   return undefined;
 }
 
@@ -85,6 +86,7 @@ app.post('/api/conversations/:id/confirm', async (request, response) => {
   const conversation = conversations.get(request.params.id);
   const intent = request.body?.intent as QuestionIntent | undefined;
   if (!conversation || !intent) return response.status(400).json({ error: { code: 'INVALID_INTENT', message: 'A valid intent is required.' } });
+  if (!sameIntent(conversation.pendingIntent, intent)) return response.status(409).json({ error: { code: 'INVALID_INTENT', message: 'The confirmed interpretation does not match the latest interpretation. Ask the question again and confirm the current plan.' } });
   const intentError = validateIntent(intent);
   if (intentError) return response.status(400).json({ error: { code: 'INVALID_INTENT', message: intentError } });
   try {
@@ -104,6 +106,33 @@ app.get('/api/conversations/:id', (request, response) => {
   const conversation = conversations.get(request.params.id);
   if (!conversation) return response.status(404).json({ error: 'Conversation not found' });
   response.json(conversation);
+});
+
+app.post('/api/map-points', async (request, response) => {
+  const locations = Array.isArray(request.body?.locations) ? request.body.locations : [];
+  if (!locations.length || locations.some((location: unknown) => !location || typeof location !== 'object' || typeof (location as { name?: unknown }).name !== 'string')) {
+    return response.status(400).json({ error: 'Map locations must include named Census geographies.' });
+  }
+  try {
+    const points = await Promise.all(locations.slice(0, 10).map(async (location: { name: string; state?: string; geographyId?: { stateFips: string; countyFips?: string } }) => {
+      const stateFips = location.geographyId?.stateFips;
+      const countyFips = location.geographyId?.countyFips;
+      const where = stateFips && countyFips ? `STATE='${stateFips}' AND COUNTY='${countyFips}'` : undefined;
+      const url = where
+        ? `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query?where=${encodeURIComponent(where)}&outFields=NAME%2CINTPTLAT%2CINTPTLON&returnGeometry=false&f=json`
+        : `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent([location.name, location.state].filter(Boolean).join(', '))}&benchmark=Public_AR_Current&format=json`;
+      const geocoderResponse = await fetch(url);
+      if (!geocoderResponse.ok) return null;
+      const payload = await geocoderResponse.json() as { features?: Array<{ attributes?: { INTPTLAT?: string; INTPTLON?: string } }>; result?: { addressMatches?: Array<{ coordinates?: { x: number; y: number } }> } };
+      const tigerPoint = payload.features?.[0]?.attributes;
+      if (tigerPoint?.INTPTLAT && tigerPoint.INTPTLON) return { ...location, latitude: Number(tigerPoint.INTPTLAT), longitude: Number(tigerPoint.INTPTLON) };
+      const coordinates = payload.result?.addressMatches?.[0]?.coordinates;
+      return coordinates ? { ...location, latitude: coordinates.y, longitude: coordinates.x } : null;
+    }));
+    response.json({ points: points.filter(Boolean) });
+  } catch (error) {
+    response.status(502).json({ error: error instanceof Error ? error.message : 'The Census geocoder could not be reached.' });
+  }
 });
 
 app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest', supportedMetrics }));

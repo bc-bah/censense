@@ -1,6 +1,6 @@
 import type { QuestionIntent } from '../shared/contracts.js';
 import { CENSUS_YEAR, defaultYearsForOperation } from '../census/catalog.js';
-import { findAllStatesInQuestion, findStateInQuestion } from '../census/states.js';
+import { allStateNames, findAllStatesInQuestion, findStateInQuestion } from '../census/states.js';
 
 export type ParseResult = { intent: QuestionIntent; text: string } | { clarification: string; pendingIntent?: QuestionIntent } | { unsupported: string };
 
@@ -71,7 +71,7 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
       limit: limitValue ?? pendingIntent.limit,
     });
   }
-  if (normalized.includes('population') && (normalized.includes('growth') || normalized.includes('grew'))) {
+  if ((normalized.includes('population') && (normalized.includes('growth') || normalized.includes('grew'))) || normalized.includes('grew') || normalized.includes('increased')) {
     return clarification({ metric: 'population', geography: 'county', years: comparisonYears, operation: 'growth', comparison: { baselineYear: comparisonYears[0], laterYear: comparisonYears[1], }, interpretationSource: 'fallback' });
   }
   if (normalized.includes('population') && (normalized.includes('total') || normalized.includes('how many') || normalized.includes('largest'))) {
@@ -82,11 +82,12 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
     return clarification({ metric: 'work_from_home', geography: 'county', counties: counties.length ? counties : undefined, years: comparisonYears, operation: 'change', comparison: { baselineYear: comparisonYears[0], laterYear: comparisonYears[1] }, interpretationSource: 'fallback' });
   }
   if (normalized.includes('poverty')) {
-    const states = findAllStatesInQuestion(question);
+    const namedStates = findAllStatesInQuestion(question);
+    const states = namedStates.length >= 2 || /\b(?:which|what(?:\s+are)?)\s+(?:the\s+)?states\b|\ball\s+states\b|\bnationwide\b/.test(normalized) ? (namedStates.length >= 2 ? namedStates : allStateNames()) : namedStates;
     const year = years[0] ?? CENSUS_YEAR;
     return clarification({ metric: 'poverty_rate', geography: 'state', states: states.length ? states : undefined, years: [year], operation: 'compare', interpretationSource: 'fallback' });
   }
-  if (normalized.includes('income') && (counties.length >= 2 || normalized.includes('counties'))) {
+  if (normalized.includes('income') && (counties.length >= 1 || normalized.includes('county') || normalized.includes('counties'))) {
     const year = years[0] ?? CENSUS_YEAR;
     return clarification({ metric: 'median_household_income', geography: 'county', counties: counties.length ? counties : undefined, limit: limitValue, years: [year], operation: 'compare', interpretationSource: 'fallback' });
   }
@@ -95,6 +96,6 @@ export function parseQuestion(question: string, pendingIntent?: QuestionIntent):
     return clarification({ metric: 'aging_and_income', geography: 'county', years: [year], operation: 'filter', filters: { agingThreshold: 20, incomeThreshold: 60000 }, interpretationSource: 'fallback' });
   }
   if (!state) return { clarification: 'Which state or territory should I query?' };
-  if (normalized.includes('income')) return { clarification: `Which ${state} counties should I compare? Name at least two counties.` };
+  if (normalized.includes('income')) return { clarification: `Which ${state} county or counties should I query?` };
   return { unsupported: 'I could not map that request to an approved Census metric. Try naming a measure such as population, median household income, work from home, or aging population, plus the geography and years you want.' };
 }
