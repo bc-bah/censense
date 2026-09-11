@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CensusAnswer, Message, QuestionIntent } from '../shared/contracts';
+import { buildTranscriptMarkdown } from './transcript';
 import logoUrl from '../../assets/censussense-logo-lockup.png';
 import iconUrl from '../../assets/censussense-app-icon.png';
 
@@ -50,11 +51,22 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
+  function downloadTranscript() {
+    const markdown = buildTranscriptMarkdown(messages);
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const link = document.createElement('a');
+    link.href = url; link.download = `censussense-transcript-${stamp}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return <main className="app-shell">
     <header className="topbar"><a className="brand" href="/" aria-label="CensusSense home"><img src={logoUrl} alt="CensusSense" /></a><div className="status"><span className="status-light" />Live Census connection</div></header>
     <section className="workspace">
       <aside className="intro-panel"><div className="hero-kicker"><span className="kicker-line" />Your questions, mapped to evidence</div><h1>Find the story in the numbers.</h1><p className="intro-copy">Ask about any state or territory in plain English. CensusSense translates your question, checks the official data, and lets you see exactly how the answer was made.</p><div className="signal-row"><span>01</span><span>Interpret</span><span>02</span><span>Verify</span><span>03</span><span>Decide</span></div><div className="rule" /><p className="micro-label">Start with an example</p><div className="example-list">{examples.map((example, index) => <button key={example} className="example" onClick={() => void ask(example)}><span className="example-index">0{index + 1}</span><span>{example}</span><span className="example-arrow">↗</span></button>)}</div></aside>
-      <section className="chat-panel"><div className="chat-heading"><div><p className="eyebrow">Research workspace</p><h2>Ask CensusSense</h2></div><span className="secure-label">Catalog-guarded · live data</span></div>
+      <section className="chat-panel"><div className="chat-heading"><div><p className="eyebrow">Research workspace</p><h2>Ask CensusSense</h2></div><div className="chat-heading-actions"><button className="download-transcript" onClick={downloadTranscript} disabled={!messages.length}>Download transcript ↓</button><span className="secure-label">Catalog-guarded · live data</span></div></div>
         <div className="transcript" aria-live="polite">
           {!messages.length && <div className="empty-state"><div className="empty-art"><img src={iconUrl} alt="" /></div><div className="empty-tag">Ready when you are</div><h3>What should we investigate?</h3><p>Ask about population, income, work, age, or another approved Census measure. We will show the interpretation before anything runs.</p></div>}
           {messages.map((item) => <MessageBubble key={item.id} item={item} evidenceOpen={evidenceOpen === item.id} resultsExpanded={expandedResults === item.id} onEvidence={() => setEvidenceOpen(evidenceOpen === item.id ? undefined : item.id)} onExpandResults={() => setExpandedResults(expandedResults === item.id ? undefined : item.id)} />)}
