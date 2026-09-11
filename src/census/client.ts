@@ -3,6 +3,7 @@ import { BASELINE_YEAR, CENSUS_YEAR, defaultYearsForOperation, metricCatalog } f
 import { rankGrowth } from './calculations.js';
 import { parseCensusRows } from './responseValidation.js';
 import { resolveStateFips, resolveStateFipsList } from './states.js';
+import { getMetricDefinition, getReviewedMetric } from './reviewedCatalog.js';
 
 const CENSUS_API = 'https://api.census.gov/data';
 type CensusRecord = Record<string, string | null>;
@@ -64,7 +65,8 @@ function unmatchedCounties(rows: CensusRecord[], intent: QuestionIntent): string
 }
 
 export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAnswer> {
-  const definition = metricCatalog[intent.metric];
+  const definition = getMetricDefinition(intent.metric);
+  if (!definition) throw new Error(`Metric ${intent.metric} is not approved for execution.`);
   const requestedYears = intent.years.length ? intent.years : defaultYearsForOperation(intent.operation);
   const requestedYear = requestedYears[0] ?? CENSUS_YEAR;
   const baselineYear = intent.comparison?.baselineYear ?? requestedYears[0] ?? BASELINE_YEAR;
@@ -73,6 +75,23 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
   let calculation = 'Values retrieved from the approved ACS catalog.';
   let requests: EvidenceRequest[] = [];
   const warnings: string[] = [];
+
+  const reviewedDefinition = getReviewedMetric(intent.metric);
+  if (reviewedDefinition) {
+    if (intent.geography !== reviewedDefinition.geography) throw new Error(`Reviewed metric ${reviewedDefinition.key} is approved only for ${reviewedDefinition.geography}-level comparisons.`);
+    const variableId = reviewedDefinition.variables[0].id;
+    if (intent.geography === 'state') {
+      const states = intent.states ?? [];
+      const result = await queryCensusStates(requestedYear, [variableId], states);
+      requests = [{ vintage: requestedYear, url: result.requestUrl }];
+      rows = result.rows.map((row) => ({ geography: censusName(row), geographyId: geographyId(row), values: { [reviewedDefinition.key]: numericValue(row, variableId) } })).sort((a, b) => (b.values[reviewedDefinition.key] ?? 0) - (a.values[reviewedDefinition.key] ?? 0));
+      return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected states using ${requestedYear} ACS data.` : `No valid ${reviewedDefinition.label} rows were available.`, rows, evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: (intent.states ?? []).join(', '), filters: { states: (intent.states ?? []).join(', '), metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
+    }
+    const result = await queryCensus(requestedYear, [variableId], intent.state);
+    requests = [{ vintage: requestedYear, url: result.requestUrl }];
+    rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), geographyId: geographyId(row), values: { [reviewedDefinition.key]: numericValue(row, variableId) } })).sort((a, b) => (b.values[reviewedDefinition.key] ?? 0) - (a.values[reviewedDefinition.key] ?? 0));
+    return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected counties using ${requestedYear} ACS data.` : `No matching rows were available for ${reviewedDefinition.label}.`, rows, evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: `${intent.state} counties`, filters: { state: intent.state ?? '', metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
+  }
 
   if (intent.geography === 'state') {
     if (intent.metric !== 'poverty_rate') throw new Error('State-level comparison is only configured for the poverty rate metric right now.');

@@ -1,17 +1,17 @@
-/* Keep the app frame fixed while the conversation remains scrollable. */
+/* Bound the chat independently so the page keeps its breathing room. */
 .app-shell {
-  height: 100vh;
-  min-height: 0;
+  min-height: 100vh;
 }
 
 .workspace {
-  height: calc(100vh - 82px);
+  height: auto;
   min-height: 0;
+  align-items: start;
 }
 
 .chat-panel {
   min-height: 0;
-  height: 100%;
+  height: min(760px, calc(100vh - 150px));
 }
 
 .transcript {
@@ -32,7 +32,7 @@
 
   .chat-panel {
     height: min(760px, calc(100vh - 150px));
-    min-height: 600px;
+    min-height: 560px;
   }
 }
 

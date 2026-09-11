@@ -4,19 +4,21 @@ import { randomUUID } from 'node:crypto';
 import type { Conversation, Message, QuestionIntent } from '../shared/contracts.js';
 import { parseQuestion } from '../interpretation/fallbackParser.js';
 import { runCensusIntent } from '../census/client.js';
-import { defaultYearsForOperation, metricCatalog } from '../census/catalog.js';
+import { defaultYearsForOperation } from '../census/catalog.js';
 import { createOllamaClient } from './ollamaClient.js';
 import { sameIntent } from './intentValidation.js';
-import { resolveStateFips, resolveStateFipsList } from '../census/states.js';
+import { findAllStatesInQuestion, findStateInQuestion, resolveStateFips, resolveStateFipsList } from '../census/states.js';
+import { searchCensusVariables } from '../census/metadata.js';
+import { getCensusVariable } from '../census/metadata.js';
+import { getMetricDefinition, getReviewedMetric, getReviewedMetrics, getSupportedMetricKeys, registerReviewedMetric } from '../census/reviewedCatalog.js';
 
 const app = express();
 app.use(express.json());
 const conversations = new Map<string, Conversation>();
 const ollama = createOllamaClient();
-const supportedMetrics = Object.keys(metricCatalog);
 
 function validateIntent(intent: QuestionIntent): string | undefined {
-  if (!supportedMetrics.includes(intent.metric)) return `The requested metric is not in the approved Census catalog. Available metrics: ${supportedMetrics.join(', ')}.`;
+  if (!getMetricDefinition(intent.metric)) return `The requested metric is not in the approved Census catalog. Available metrics: ${getSupportedMetricKeys().join(', ')}.`;
   if (intent.geography !== 'county' && intent.geography !== 'state') return 'Only county- or state-level Census geography is configured for this application.';
   if (intent.geography === 'state') {
     if (!intent.states || intent.states.length < 2) return 'A state-level comparison requires naming at least two states.';
@@ -34,6 +36,20 @@ function message(role: Message['role'], kind: Message['kind'], text: string, ext
   return { id: randomUUID(), role, kind, text, createdAt: new Date().toISOString(), ...extra };
 }
 
+function reviewedMetricIntent(text: string): QuestionIntent | undefined {
+  const normalized = text.toLowerCase();
+  const reviewed = getReviewedMetrics().find((metric) => normalized.includes(metric.label.toLowerCase()) || normalized.includes(metric.key.toLowerCase()));
+  if (!reviewed) return undefined;
+  if (reviewed.geography === 'county') {
+    const state = findStateInQuestion(text);
+    if (!state) return undefined;
+    return { metric: reviewed.key, geography: 'county', state, years: [defaultYearsForOperation('compare')[0]], operation: 'compare', interpretationSource: 'fallback' };
+  }
+  const states = findAllStatesInQuestion(text);
+  if (states.length < 2) return undefined;
+  return { metric: reviewed.key, geography: 'state', states, years: [defaultYearsForOperation('compare')[0]], operation: 'compare', interpretationSource: 'fallback' };
+}
+
 app.post('/api/conversations', (_request, response) => {
   const id = randomUUID();
   conversations.set(id, { id, messages: [] });
@@ -47,8 +63,12 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   conversation.messages.push(message('user', 'question', text));
   let parsed: Awaited<ReturnType<typeof parseQuestion>>;
   const fallback = parseQuestion(text, conversation.pendingIntent);
+  const reviewedIntent = reviewedMetricIntent(text);
+  if (reviewedIntent) {
+    parsed = { intent: reviewedIntent, text: `I will compare the reviewed ${getReviewedMetric(reviewedIntent.metric)?.label ?? reviewedIntent.metric} metric using approved ACS data. Review the interpretation before running it.` };
+  } else {
   try {
-    const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics });
+    const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics: getSupportedMetricKeys() });
     const deterministicIncomeIntent = 'intent' in fallback && fallback.intent.metric === 'median_household_income' ? fallback : undefined;
     parsed = modelIntent
       ? deterministicIncomeIntent ?? {
@@ -58,6 +78,7 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
       : fallback;
   } catch {
     parsed = fallback;
+  }
   }
   if ('clarification' in parsed) {
     conversation.pendingIntent = parsed.pendingIntent;
@@ -108,6 +129,34 @@ app.get('/api/conversations/:id', (request, response) => {
   response.json(conversation);
 });
 
+app.get('/api/catalog/search', async (request, response) => {
+  const query = typeof request.query.q === 'string' ? request.query.q : '';
+  const year = typeof request.query.year === 'string' && /^20\d{2}$/.test(request.query.year) ? request.query.year : '2023';
+  if (query.trim().length < 2) return response.status(400).json({ error: 'Search for at least two characters.' });
+  try {
+    const variables = await searchCensusVariables(query, year);
+    response.json({ year, dataset: 'ACS 5-year estimates', reviewRequired: true, variables });
+  } catch (error) {
+    response.status(502).json({ error: error instanceof Error ? error.message : 'The Census metadata service could not be reached.' });
+  }
+});
+
+app.post('/api/catalog/approve', async (request, response) => {
+  const { id, key, label, geography, unit, year = '2023' } = request.body ?? {};
+  if (typeof id !== 'string' || typeof key !== 'string' || typeof label !== 'string' || !['county', 'state'].includes(geography) || typeof unit !== 'string' || !/^20\d{2}$/.test(year)) {
+    return response.status(400).json({ error: 'Provide a variable id, metric key, label, geography, unit, and four-digit year.' });
+  }
+  if (!/^[a-z][a-z0-9_]{2,48}$/.test(key) || getMetricDefinition(key)) return response.status(400).json({ error: 'Metric key must be new and use lowercase letters, numbers, and underscores.' });
+  try {
+    const sourceVariable = await getCensusVariable(id, year);
+    if (!sourceVariable || !['int', 'float'].includes(sourceVariable.predicateType ?? '')) return response.status(400).json({ error: 'Only numeric ACS estimate variables can be approved as direct metrics.' });
+    const reviewed = registerReviewedMetric({ key, label, dataset: 'ACS 5-year estimates', geography, variables: [{ id, label: sourceVariable.label, unit }], review: { reviewedAt: new Date().toISOString(), sourceVariable } });
+    response.status(201).json({ metric: reviewed, message: `Reviewed metric approved. Ask for "${reviewed.label}" or use metric key "${reviewed.key}". Derived formulas still require a separate calculation definition.` });
+  } catch (error) {
+    response.status(502).json({ error: error instanceof Error ? error.message : 'The Census metadata service could not be reached.' });
+  }
+});
+
 app.post('/api/map-points', async (request, response) => {
   const locations = Array.isArray(request.body?.locations) ? request.body.locations : [];
   if (!locations.length || locations.some((location: unknown) => !location || typeof location !== 'object' || typeof (location as { name?: unknown }).name !== 'string')) {
@@ -135,7 +184,7 @@ app.post('/api/map-points', async (request, response) => {
   }
 });
 
-app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest', supportedMetrics }));
+app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest', supportedMetrics: getSupportedMetricKeys() }));
 
 app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
   if (error instanceof SyntaxError && 'body' in error) {

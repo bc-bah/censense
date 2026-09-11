@@ -45,7 +45,13 @@ The MVP supports allowlisted county- and state-level analyses across U.S. states
 | Aging and income | "Which communities have both an aging population and relatively low household income?" | Applies documented age-share and income thresholds. |
 | Poverty rate | "Which states have the highest poverty rates?" | Compares state-level poverty rates using the approved ACS variables. |
 
-Requests outside the approved metric catalog or geography boundary receive an explicit clarification or unsupported response rather than a guessed answer. The model can interpret new wording and unseen questions, but it cannot select arbitrary Census variables or construct unrestricted API queries.
+Requests outside the approved metric catalog or geography boundary receive an explicit clarification or unsupported response rather than a guessed answer. The catalog browser can search official ACS variable metadata, but discovered variables are review-only until their universe, geography, formula, and tests are added to the approved catalog. The model cannot select arbitrary Census variables or construct unrestricted API queries.
+
+### Promoting a discovered variable
+
+Catalog search results include a **Review and approve direct metric** action. The server re-checks the selected variable against official ACS metadata before registering it for the current server session. Approved direct metrics support raw numeric county or state comparisons and preserve the source variable in evidence. Derived metrics still require a reviewed formula and dedicated calculation tests.
+
+Reviewed metrics are currently held in memory for the MVP and are cleared when the API restarts. Persisting approvals should be added only after the team agrees on an auditable review record and storage boundary.
 
 ## How it works
 

@@ -3,4 +3,5 @@ dist
 .env
 .env.*
 !.env.example
+.censense-reviewed-metrics.json
 .DS_Store

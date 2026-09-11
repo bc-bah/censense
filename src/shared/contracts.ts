@@ -1,6 +1,16 @@
-export type Metric = 'population' | 'work_from_home' | 'median_household_income' | 'aging_and_income' | 'poverty_rate';
+export type Metric = 'population' | 'work_from_home' | 'median_household_income' | 'aging_and_income' | 'poverty_rate' | (string & {});
 export type Operation = 'compare' | 'growth' | 'change' | 'filter';
 export type InterpretationSource = 'ollama' | 'fallback';
+
+export type CensusVariableMetadata = {
+  id: string;
+  label: string;
+  concept?: string;
+  predicateType?: string;
+  group?: string;
+  attributes?: string;
+  limit?: number;
+};
 
 export type QuestionIntent = {
   metric: Metric;
