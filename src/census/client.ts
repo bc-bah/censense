@@ -1,0 +1,91 @@
+import type { CensusAnswer, QuestionIntent } from '../shared/contracts.js';
+import { BASELINE_YEAR, CENSUS_YEAR, metricCatalog } from './catalog.js';
+import { rankGrowth } from './calculations.js';
+import { parseCensusRows } from './responseValidation.js';
+
+const CENSUS_API = 'https://api.census.gov/data';
+const STATE_FIPS = '51';
+type CensusRecord = Record<string, string | null>;
+
+function numericValue(record: CensusRecord, variable: string): number | null {
+  const value = record[variable];
+  if (value === null || value === undefined || value === '' || value === '-666666666') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+async function queryCensus(year: string, variableIds: string[]): Promise<{ rows: CensusRecord[]; requestUrl: string }> {
+  const apiKey = process.env.CENSUS_API_KEY;
+  if (!apiKey) throw new Error('CENSUS_API_KEY is not configured on the server. Add it to the server environment and restart.');
+  const publicParams = new URLSearchParams({ get: ['NAME', ...variableIds].join(','), for: 'county:*', in: `state:${STATE_FIPS}` });
+  const requestParams = new URLSearchParams(publicParams);
+  requestParams.set('key', apiKey);
+  const requestUrl = `${CENSUS_API}/${year}/acs/acs5?${publicParams.toString()}`;
+  const response = await fetch(`${CENSUS_API}/${year}/acs/acs5?${requestParams.toString()}`);
+  if (!response.ok) throw new Error(`Census API returned ${response.status} for the ${year} ACS request.`);
+  const payload: unknown = await response.json();
+  return { rows: parseCensusRows(payload), requestUrl };
+}
+
+function selectedRows(rows: CensusRecord[], intent: QuestionIntent): CensusRecord[] {
+  if (!intent.counties?.length) return rows;
+  const requested = new Set(intent.counties.map((county) => county.toLowerCase()));
+  return rows.filter((row) => row.NAME && requested.has(row.NAME.toLowerCase()));
+}
+
+export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAnswer> {
+  const definition = metricCatalog[intent.metric];
+  let rows: CensusAnswer['rows'];
+  let calculation = 'Values retrieved from the approved ACS catalog.';
+  let requestUrls: string[] = [];
+
+  if (intent.metric === 'population') {
+    const baseline = await queryCensus(BASELINE_YEAR, ['B01003_001E']);
+    const later = await queryCensus(CENSUS_YEAR, ['B01003_001E']);
+    requestUrls = [baseline.requestUrl, later.requestUrl];
+    const laterByCounty = new Map(selectedRows(later.rows, intent).map((row) => [row.NAME, numericValue(row, 'B01003_001E')]));
+    rows = rankGrowth(selectedRows(baseline.rows, intent).map((row) => ({ geography: row.NAME ?? 'Unknown county', values: { [BASELINE_YEAR]: numericValue(row, 'B01003_001E'), [CENSUS_YEAR]: laterByCounty.get(row.NAME ?? '') ?? null } })), BASELINE_YEAR, CENSUS_YEAR);
+    calculation = `percentage change = (later - baseline) / baseline * 100; baseline=${BASELINE_YEAR}, later=${CENSUS_YEAR}`;
+  } else if (intent.metric === 'median_household_income') {
+    const result = await queryCensus(CENSUS_YEAR, ['B19013_001E']);
+    requestUrls = [result.requestUrl];
+    rows = selectedRows(result.rows, intent).map((row) => ({ geography: row.NAME ?? 'Unknown county', values: { medianHouseholdIncome: numericValue(row, 'B19013_001E') } })).sort((a, b) => (b.values.medianHouseholdIncome ?? 0) - (a.values.medianHouseholdIncome ?? 0));
+  } else if (intent.metric === 'work_from_home') {
+    const variableIds = ['B08301_021E', 'B08301_001E'];
+    const baseline = await queryCensus(BASELINE_YEAR, variableIds);
+    const later = await queryCensus(CENSUS_YEAR, variableIds);
+    requestUrls = [baseline.requestUrl, later.requestUrl];
+    const laterByCounty = new Map(selectedRows(later.rows, intent).map((row) => [row.NAME, row]));
+    rows = selectedRows(baseline.rows, intent).flatMap((row) => {
+      const laterRow = laterByCounty.get(row.NAME ?? '');
+      const baselineWorkers = numericValue(row, 'B08301_001E');
+      const laterWorkers = laterRow ? numericValue(laterRow, 'B08301_001E') : null;
+      const baselineAtHome = numericValue(row, 'B08301_021E');
+      const laterAtHome = laterRow ? numericValue(laterRow, 'B08301_021E') : null;
+      if (!baselineWorkers || !laterWorkers || baselineAtHome === null || laterAtHome === null) return [];
+      const baselineShare = (baselineAtHome / baselineWorkers) * 100;
+      const laterShare = (laterAtHome / laterWorkers) * 100;
+      return [{ geography: row.NAME ?? 'Unknown county', values: { baselineShare, laterShare, percentagePointChange: laterShare - baselineShare } }];
+    }).sort((a, b) => (b.values.percentagePointChange ?? 0) - (a.values.percentagePointChange ?? 0));
+    calculation = 'percentage-point change = later work-from-home share - baseline share';
+  } else {
+    const result = await queryCensus(CENSUS_YEAR, definition.variables.map((item) => item.id));
+    requestUrls = [result.requestUrl];
+    const olderVariables = definition.variables.filter((item) => item.id.startsWith('B01001_0') && item.id !== 'B01001_001E').map((item) => item.id);
+    rows = selectedRows(result.rows, intent).map((row) => {
+      const total = numericValue(row, 'B01001_001E');
+      const older = olderVariables.reduce((sum, variable) => sum + (numericValue(row, variable) ?? 0), 0);
+      return { geography: row.NAME ?? 'Unknown county', values: { olderPopulationShare: total ? (older / total) * 100 : null, medianHouseholdIncome: numericValue(row, 'B19013_001E') } };
+    }).filter((row) => (row.values.olderPopulationShare ?? 0) >= (intent.filters?.agingThreshold ?? 20) && (row.values.medianHouseholdIncome ?? Infinity) < (intent.filters?.incomeThreshold ?? 60000));
+    calculation = 'Match rows where older population share meets the threshold and median household income is below the threshold.';
+  }
+
+  return { summary: buildSummary(intent, rows), rows, evidence: { dataset: definition.dataset, vintage: CENSUS_YEAR, variables: definition.variables.map((item) => ({ ...item })), geography: 'Virginia counties', filters: { state: 'Virginia', metric: intent.metric }, requestUrl: requestUrls.join('\n'), rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings: [] };
+}
+
+function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows']): string {
+  if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest population growth in the configured Virginia county comparison.` : 'No valid population rows were available.';
+  if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the named counties.` : 'No named counties were available.';
+  if (intent.metric === 'work_from_home') return rows.length ? `${rows[0].geography} has the largest configured work-from-home change.` : 'No valid work-from-home rows were available.';
+  return rows.length ? `${rows.length} communities meet both aging and income thresholds.` : 'No communities meet both configured thresholds.';
+}
