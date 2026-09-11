@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CENSUS_YEAR } from '../census/catalog';
 import { parseQuestion } from '../interpretation/fallbackParser';
 
 describe('fallback parser', () => {
@@ -13,5 +14,10 @@ describe('fallback parser', () => {
   it('preserves a non-Virginia state from the question', () => {
     const result = parseQuestion('What is the total population of New Hampshire counties?');
     expect('intent' in result && result.intent.state).toBe('new hampshire');
+  });
+  it('uses and discloses the default Census year when no year is requested', () => {
+    const result = parseQuestion('What is the total population of Virginia counties?');
+    expect('intent' in result && result.intent.years).toEqual([CENSUS_YEAR]);
+    expect('text' in result && result.text).toContain(`${CENSUS_YEAR} ACS data`);
   });
 });

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Conversation, Message, QuestionIntent } from '../shared/contracts.js';
 import { parseQuestion } from '../interpretation/fallbackParser.js';
 import { runCensusIntent } from '../census/client.js';
-import { metricCatalog } from '../census/catalog.js';
+import { defaultYearsForOperation, metricCatalog } from '../census/catalog.js';
 import { createOllamaClient } from './ollamaClient.js';
 import { resolveStateFips } from '../census/states.js';
 
@@ -43,7 +43,10 @@ app.post('/api/conversations/:id/messages', async (request, response) => {
   try {
     const modelIntent = await ollama.generateIntent({ question: text, messages: conversation.messages, supportedMetrics });
     parsed = modelIntent
-      ? { intent: { ...modelIntent, interpretationSource: 'ollama' }, text: 'I mapped your question to approved Census metrics and will show the interpretation before running it.' }
+      ? {
+          intent: { ...modelIntent, years: modelIntent.years.length ? modelIntent.years : defaultYearsForOperation(modelIntent.operation), interpretationSource: 'ollama' },
+          text: `I mapped your question to approved Census metrics using ${modelIntent.years.join(' and ') || defaultYearsForOperation(modelIntent.operation).join(' and ')} ACS data. Review the interpretation before running it.`,
+        }
       : parseQuestion(text);
   } catch {
     parsed = parseQuestion(text);

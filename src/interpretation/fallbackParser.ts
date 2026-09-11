@@ -1,5 +1,5 @@
 import type { QuestionIntent } from '../shared/contracts.js';
-import { BASELINE_YEAR, CENSUS_YEAR } from '../census/catalog.js';
+import { CENSUS_YEAR, defaultYearsForOperation } from '../census/catalog.js';
 import { findStateInQuestion } from '../census/states.js';
 
 export type ParseResult = { intent: QuestionIntent; text: string } | { clarification: string } | { unsupported: string };
@@ -10,7 +10,7 @@ export function parseQuestion(question: string): ParseResult {
   if (!state) return { clarification: 'Which state or territory should I query?' };
   const counties = [...question.matchAll(/\b([A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*)*\s+(?:County|Parish|Borough|city))\b/g)].map((match) => match[1].trim());
   const years = [...question.matchAll(/\b(20\d{2})\b/g)].map((match) => match[1]);
-  const comparisonYears = years.length >= 2 ? [years[0], years[1]] : [BASELINE_YEAR, CENSUS_YEAR];
+  const comparisonYears = years.length >= 2 ? [years[0], years[1]] : defaultYearsForOperation('change');
   if (normalized.includes('population') && (normalized.includes('growth') || normalized.includes('grew'))) {
     return { intent: { metric: 'population', geography: 'county', state, years: comparisonYears, operation: 'growth', comparison: { baselineYear: comparisonYears[0], laterYear: comparisonYears[1], }, interpretationSource: 'fallback' }, text: `I will compare ${state} county population between ${comparisonYears[0]} and ${comparisonYears[1]}, then rank the percentage change.` };
   }

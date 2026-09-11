@@ -1,6 +1,12 @@
 export const CENSUS_YEAR = '2023';
 export const BASELINE_YEAR = '2021';
 
+export function defaultYearsForOperation(operation: 'compare' | 'growth' | 'change' | 'filter'): string[] {
+  return operation === 'growth' || operation === 'change'
+    ? [BASELINE_YEAR, CENSUS_YEAR]
+    : [CENSUS_YEAR];
+}
+
 export const metricCatalog = {
   population: { label: 'Population', dataset: 'ACS 5-year estimates', variables: [{ id: 'B01003_001E', label: 'Total population', unit: 'people' }] },
   work_from_home: { label: 'Work from home', dataset: 'ACS 5-year estimates', variables: [{ id: 'B08301_021E', label: 'Worked from home', unit: 'people' }, { id: 'B08301_001E', label: 'Workers 16 years and over', unit: 'people' }] },
