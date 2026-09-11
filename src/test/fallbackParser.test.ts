@@ -66,4 +66,21 @@ describe('fallback parser', () => {
     expect('intent' in third && third.intent.state).toBe('virginia');
     expect('intent' in third && third.intent.counties).toHaveLength(5);
   });
+  it('recognizes a colon-introduced list of named counties after the "counties" keyword', () => {
+    const result = parseQuestion('Compare median household income across five named counties in Oregon state: Clatsop, Tillamook, Lincoln, Coos, and Curry.');
+    expect('intent' in result && result.intent.counties).toEqual([
+      'Clatsop County',
+      'Tillamook County',
+      'Lincoln County',
+      'Coos County',
+      'Curry County',
+    ]);
+    expect('intent' in result && result.intent.state).toBe('oregon');
+  });
+  it('recognizes a multi-state poverty rate comparison', () => {
+    const result = parseQuestion('How does the poverty rate compare across Ohio, Michigan, and Pennsylvania?');
+    expect('intent' in result && result.intent.metric).toBe('poverty_rate');
+    expect('intent' in result && result.intent.geography).toBe('state');
+    expect('intent' in result && result.intent.states).toEqual(['ohio', 'michigan', 'pennsylvania']);
+  });
 });

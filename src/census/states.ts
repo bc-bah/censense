@@ -10,7 +10,24 @@ export function resolveStateFips(state: string | undefined): { name: string; fip
   return { name: state.trim().replace(/\b\w/g, (letter) => letter.toUpperCase()), fips };
 }
 
+export function resolveStateFipsList(states: string[]): { name: string; fips: string }[] {
+  return states.map((state) => resolveStateFips(state));
+}
+
 export function findStateInQuestion(question: string): string | undefined {
   const normalized = question.toLowerCase();
   return Object.keys(stateFips).sort((a, b) => b.length - a.length).find((state) => normalized.includes(state));
+}
+
+export function findAllStatesInQuestion(question: string): string[] {
+  const normalized = question.toLowerCase();
+  const matches: Array<{ index: number; state: string }> = [];
+  for (const state of Object.keys(stateFips).sort((a, b) => b.length - a.length)) {
+    const pattern = new RegExp(`\\b${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    for (const match of normalized.matchAll(pattern)) {
+      if (matches.some((existing) => match.index! < existing.index + existing.state.length && match.index! + state.length > existing.index)) continue;
+      matches.push({ index: match.index!, state });
+    }
+  }
+  return matches.sort((a, b) => a.index - b.index).map((match) => match.state);
 }

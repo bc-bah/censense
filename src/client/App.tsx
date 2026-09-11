@@ -13,6 +13,12 @@ const examples = [
 
 type ApiMessage = { message: Message };
 
+async function readApiMessage(response: Response): Promise<ApiMessage> {
+  const payload = await response.json() as ApiMessage | { error?: { message?: string } };
+  if (!response.ok || !('message' in payload)) throw new Error(payload.error?.message ?? 'The CensusSense request failed.');
+  return payload;
+}
+
 export default function App() {
   const [conversationId, setConversationId] = useState<string>();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -35,9 +41,11 @@ export default function App() {
     setBusy(true); setDraft('');
     try {
       const response = await fetch(`/api/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-      const data = await response.json() as ApiMessage;
+      const data = await readApiMessage(response);
       setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', kind: 'question', text, createdAt: new Date().toISOString() }, data.message]);
       setPendingIntent(data.message.intent);
+    } catch (error) {
+      setMessages((current) => [...current, { id: `error-${Date.now()}`, role: 'assistant', kind: 'error', text: error instanceof Error ? error.message : 'The CensusSense request failed.', createdAt: new Date().toISOString() }]);
     } finally { setBusy(false); }
   }
 
@@ -46,8 +54,10 @@ export default function App() {
     setBusy(true);
     try {
       const response = await fetch(`/api/conversations/${conversationId}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: pendingIntent }) });
-      const data = await response.json() as ApiMessage;
+      const data = await readApiMessage(response);
       setMessages((current) => [...current, data.message]); setPendingIntent(undefined);
+    } catch (error) {
+      setMessages((current) => [...current, { id: `error-${Date.now()}`, role: 'assistant', kind: 'error', text: error instanceof Error ? error.message : 'The CensusSense request failed.', createdAt: new Date().toISOString() }]);
     } finally { setBusy(false); }
   }
 
@@ -72,7 +82,7 @@ export default function App() {
           {messages.map((item) => <MessageBubble key={item.id} item={item} evidenceOpen={evidenceOpen === item.id} resultsExpanded={expandedResults === item.id} onEvidence={() => setEvidenceOpen(evidenceOpen === item.id ? undefined : item.id)} onExpandResults={() => setExpandedResults(expandedResults === item.id ? undefined : item.id)} />)}
           {busy && <div className="activity"><span className="pulse" /> Interpreting your question and checking Census data...</div>}
         </div>
-        {pendingIntent && <div className="confirmation"><div><strong>Does this look right?</strong><span>{pendingIntent.metric.replaceAll('_', ' ')} · {pendingIntent.state ?? 'state or territory'} · {pendingIntent.years.join(' → ')}</span></div><button onClick={() => void confirm()}>Run analysis <span>→</span></button></div>}
+        {pendingIntent && <div className="confirmation"><div><strong>Does this look right?</strong><span>{pendingIntent.metric.replaceAll('_', ' ')} · {pendingIntent.states?.join(', ') ?? pendingIntent.state ?? 'state or territory'} · {pendingIntent.years.join(' → ')}</span></div><button onClick={() => void confirm()}>Run analysis <span>→</span></button></div>}
         <form className="composer" onSubmit={(event) => { event.preventDefault(); void ask(); }}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask anything about Census data..." rows={2} disabled={busy} /><button aria-label="Send question" disabled={!draft.trim() || busy}>↑</button></form>
         <p className="composer-note">Plain English is welcome · You will review the interpretation first</p>
       </section>

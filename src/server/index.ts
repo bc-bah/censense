@@ -6,7 +6,7 @@ import { parseQuestion } from '../interpretation/fallbackParser.js';
 import { runCensusIntent } from '../census/client.js';
 import { defaultYearsForOperation, metricCatalog } from '../census/catalog.js';
 import { createOllamaClient } from './ollamaClient.js';
-import { resolveStateFips } from '../census/states.js';
+import { resolveStateFips, resolveStateFipsList } from '../census/states.js';
 
 const app = express();
 app.use(express.json());
@@ -16,8 +16,13 @@ const supportedMetrics = Object.keys(metricCatalog);
 
 function validateIntent(intent: QuestionIntent): string | undefined {
   if (!supportedMetrics.includes(intent.metric)) return `The requested metric is not in the approved Census catalog. Available metrics: ${supportedMetrics.join(', ')}.`;
-  if (intent.geography !== 'county') return 'Only county-level Census geography is configured for this application.';
-  try { resolveStateFips(intent.state); } catch (error) { return error instanceof Error ? error.message : 'A valid state is required.'; }
+  if (intent.geography !== 'county' && intent.geography !== 'state') return 'Only county- or state-level Census geography is configured for this application.';
+  if (intent.geography === 'state') {
+    if (!intent.states || intent.states.length < 2) return 'A state-level comparison requires naming at least two states.';
+    try { resolveStateFipsList(intent.states); } catch (error) { return error instanceof Error ? error.message : 'A valid state is required.'; }
+  } else {
+    try { resolveStateFips(intent.state); } catch (error) { return error instanceof Error ? error.message : 'A valid state is required.'; }
+  }
   if (!Array.isArray(intent.years) || intent.years.length === 0 || intent.years.some((year) => !/^\d{4}$/.test(year))) return 'The Census years must be supplied as four-digit years.';
   if ((intent.operation === 'growth' || intent.operation === 'change') && intent.years.length < 2) return 'This comparison requires a baseline year and a later year.';
   if (intent.metric === 'median_household_income' && intent.operation === 'compare' && (!intent.counties || intent.counties.length < 2) && !intent.limit) return 'A named-county income comparison requires at least two counties.';
@@ -102,6 +107,13 @@ app.get('/api/conversations/:id', (request, response) => {
 });
 
 app.get('/api/health', (_request, response) => response.json({ ok: true, fallback: true, ollama: Boolean(process.env.OLLAMA_URL), model: process.env.OLLAMA_MODEL ?? 'mistral-nemo:latest', supportedMetrics }));
+
+app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+  if (error instanceof SyntaxError && 'body' in error) {
+    return response.status(400).json({ error: { code: 'INVALID_JSON', message: 'The request body must be valid JSON.' } });
+  }
+  return next(error);
+});
 
 const port = Number(process.env.PORT ?? 3001);
 app.listen(port, () => console.log(`CensusSense API listening on http://localhost:${port}`));

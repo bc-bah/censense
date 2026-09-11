@@ -2,7 +2,7 @@ import type { CensusAnswer, EvidenceRequest, QuestionIntent } from '../shared/co
 import { BASELINE_YEAR, CENSUS_YEAR, defaultYearsForOperation, metricCatalog } from './catalog.js';
 import { rankGrowth } from './calculations.js';
 import { parseCensusRows } from './responseValidation.js';
-import { resolveStateFips } from './states.js';
+import { resolveStateFips, resolveStateFipsList } from './states.js';
 
 const CENSUS_API = 'https://api.census.gov/data';
 type CensusRecord = Record<string, string | null>;
@@ -23,6 +23,20 @@ async function queryCensus(year: string, variableIds: string[], state: string | 
   if (!apiKey) throw new Error('CENSUS_API_KEY is not configured on the server. Add it to the server environment and restart.');
   const resolvedState = resolveStateFips(state);
   const publicParams = new URLSearchParams({ get: ['NAME', ...variableIds].join(','), for: 'county:*', in: `state:${resolvedState.fips}` });
+  const requestParams = new URLSearchParams(publicParams);
+  requestParams.set('key', apiKey);
+  const requestUrl = `${CENSUS_API}/${year}/acs/acs5?${publicParams.toString()}`;
+  const response = await fetch(`${CENSUS_API}/${year}/acs/acs5?${requestParams.toString()}`);
+  if (!response.ok) throw new Error(`Census API returned ${response.status} for the ${year} ACS request.`);
+  const payload: unknown = await response.json();
+  return { rows: parseCensusRows(payload), requestUrl };
+}
+
+async function queryCensusStates(year: string, variableIds: string[], states: string[]): Promise<{ rows: CensusRecord[]; requestUrl: string }> {
+  const apiKey = process.env.CENSUS_API_KEY;
+  if (!apiKey) throw new Error('CENSUS_API_KEY is not configured on the server. Add it to the server environment and restart.');
+  const fipsList = resolveStateFipsList(states).map((resolved) => resolved.fips);
+  const publicParams = new URLSearchParams({ get: ['NAME', ...variableIds].join(','), for: `state:${fipsList.join(',')}` });
   const requestParams = new URLSearchParams(publicParams);
   requestParams.set('key', apiKey);
   const requestUrl = `${CENSUS_API}/${year}/acs/acs5?${publicParams.toString()}`;
@@ -54,6 +68,37 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
   let calculation = 'Values retrieved from the approved ACS catalog.';
   let requests: EvidenceRequest[] = [];
   const warnings: string[] = [];
+
+  if (intent.geography === 'state') {
+    if (intent.metric !== 'poverty_rate') throw new Error('State-level comparison is only configured for the poverty rate metric right now.');
+    const states = intent.states ?? [];
+    const result = await queryCensusStates(requestedYear, ['B17001_002E', 'B17001_001E'], states);
+    requests = [{ vintage: requestedYear, url: result.requestUrl }];
+    rows = result.rows.map((row) => {
+      const below = numericValue(row, 'B17001_002E');
+      const universe = numericValue(row, 'B17001_001E');
+      return { geography: censusName(row), values: { povertyRate: universe ? ((below ?? 0) / universe) * 100 : null } };
+    }).sort((a, b) => (b.values.povertyRate ?? 0) - (a.values.povertyRate ?? 0));
+    calculation = 'poverty rate = population below poverty level / population for whom poverty status is determined * 100';
+    const stateNames = resolveStateFipsList(states).map((resolved) => resolved.name);
+    const filters = { states: stateNames.join(', '), metric: intent.metric };
+    return {
+      summary: buildSummary(intent, rows, requests),
+      rows,
+      evidence: {
+        dataset: definition.dataset,
+        vintage: requests.map((request) => request.vintage).join(', '),
+        variables: definition.variables.map((item) => ({ ...item })),
+        geography: stateNames.join(', '),
+        filters,
+        requests,
+        rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })),
+        calculation,
+        retrievedAt: new Date().toISOString(),
+      },
+      warnings,
+    };
+  }
 
   if (intent.metric === 'population') {
     if (intent.operation === 'compare') {
@@ -113,6 +158,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
 function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows'], requests: EvidenceRequest[]): string {
   const state = intent.state ?? 'the requested state';
   const vintage = requests.map((request) => request.vintage).join(' to ');
+  if (intent.metric === 'poverty_rate') return rows.length ? `${rows[0].geography} has the highest poverty rate among ${(intent.states ?? []).join(', ')} using ${vintage} ACS data.` : `No valid poverty rate rows were available for ${vintage}.`;
   if (intent.metric === 'population') return rows.length ? `${rows[0].geography} has the largest ${intent.operation === 'growth' ? 'population growth' : 'population'} in the ${state} county comparison using ${vintage} ACS data.` : `No valid population rows were available for ${vintage}.`;
   if (intent.metric === 'median_household_income') return rows.length ? `${rows[0].geography} has the highest median household income among the selected ${state} counties using ${vintage} ACS data.` : `No matching counties were available for ${vintage}.`;
   if (intent.metric === 'work_from_home') return rows.length ? `${rows[0].geography} has the largest configured work-from-home change using ${vintage} ACS data.` : `No valid work-from-home rows were available for ${vintage}.`;

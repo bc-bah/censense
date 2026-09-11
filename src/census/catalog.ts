@@ -11,6 +11,10 @@ export const metricCatalog = {
   population: { label: 'Population', dataset: 'ACS 5-year estimates', variables: [{ id: 'B01003_001E', label: 'Total population', unit: 'people' }] },
   work_from_home: { label: 'Work from home', dataset: 'ACS 5-year estimates', variables: [{ id: 'B08301_021E', label: 'Worked from home', unit: 'people' }, { id: 'B08301_001E', label: 'Workers 16 years and over', unit: 'people' }] },
   median_household_income: { label: 'Median household income', dataset: 'ACS 5-year estimates', variables: [{ id: 'B19013_001E', label: 'Median household income', unit: 'USD' }] },
+  poverty_rate: { label: 'Poverty rate', dataset: 'ACS 5-year estimates', variables: [
+    { id: 'B17001_002E', label: 'Population below poverty level', unit: 'people' },
+    { id: 'B17001_001E', label: 'Population for whom poverty status is determined', unit: 'people' },
+  ] },
   aging_and_income: { label: 'Aging and income', dataset: 'ACS 5-year estimates', variables: [
     { id: 'B01001_001E', label: 'Total population', unit: 'people' },
     { id: 'B01001_020E', label: 'Male population 65 to 66 years', unit: 'people' },
