@@ -40,9 +40,50 @@ export type Evidence = {
   retrievedAt: string;
 };
 
+export type Uncertainty = {
+  marginOfError?: number | null;
+  standardError?: number | null;
+  lower90?: number | null;
+  upper90?: number | null;
+};
+
+export type DistributionBin = {
+  lower: number;
+  upper?: number;
+  count: number;
+  marginOfError?: number | null;
+};
+
+export type DistributionProfile = {
+  variable: string;
+  label: string;
+  unit?: string;
+  grouping: 'geography' | 'time';
+  source: 'acs-binned-table' | 'observed-values';
+  approximationLabel?: string;
+  profiles: Array<{
+    key: string;
+    label: string;
+    bins?: DistributionBin[];
+    samples?: number[];
+  }>;
+};
+
+export type VisualizationMetadata = {
+  spatial: boolean;
+  geographyScale: 'county' | 'state' | 'mixed' | 'none';
+  continuousVariables: string[];
+  primaryCategory?: string;
+  grouping?: 'geography' | 'time' | 'category';
+  landAreaDistortsInsight?: boolean;
+  distributionsAvailable?: boolean;
+};
+
 export type CensusAnswer = {
   summary: string;
-  rows: Array<{ geography: string; geographyId?: { stateFips: string; countyFips?: string }; values: Record<string, number | null>; rank?: number }>;
+  rows: Array<{ geography: string; geographyId?: { stateFips: string; countyFips?: string }; values: Record<string, number | null>; uncertainty?: Record<string, Uncertainty>; rank?: number }>;
+  visualization?: VisualizationMetadata;
+  distributions?: DistributionProfile[];
   evidence: Evidence;
   warnings: string[];
 };

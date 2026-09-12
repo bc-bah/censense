@@ -185,6 +185,7 @@ npm test
 | Layer | Technology |
 |---|---|
 | User experience | React 19, TypeScript, Vite |
+| Visualization | React SVG components, D3 scales, Viridis-compatible accessible ramps |
 | Local adapter | Node.js, Express |
 | Language interpretation | Ollama with JSON-constrained output |
 | Validation | Zod and typed application contracts |
@@ -222,7 +223,7 @@ For design rationale and the full request lifecycle, see the [high-level archite
 <details>
 <summary><h2>Current scope</h2></summary>
 
-CensusSense is a focused hackathon MVP. It currently supports county-level questions in the approved metric catalog, keeps conversation state in memory, and relies on the live Census API for results. It does not attempt unrestricted Census question answering, arbitrary variable discovery, authentication, or persistent conversation storage.
+CensusSense is a focused hackathon MVP. It currently supports county-level questions in the approved metric catalog, keeps conversation state in memory, and relies on the live Census API for results. Results use metadata-selected bivariate, equal-area hex, ridgeline, or faceted dot visualizations; ridgelines require explicit bins or samples and never synthesize a distribution from a single estimate. Live ACS margin-of-error retrieval and arbitrary distribution queries remain future work. The application does not attempt unrestricted Census question answering, arbitrary variable discovery, authentication, or persistent conversation storage.
 
 </details>
 

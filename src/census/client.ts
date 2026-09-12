@@ -65,6 +65,20 @@ function unmatchedCounties(rows: CensusRecord[], intent: QuestionIntent): string
   return intent.counties.filter((county) => !available.has(county.toLowerCase()));
 }
 
+function visualizationFor(intent: QuestionIntent) {
+  const bivariate = intent.metric === 'aging_and_income' || intent.metric === 'low_income_high_disease_prevalence';
+  return {
+    spatial: true,
+    geographyScale: intent.geography,
+    continuousVariables: bivariate
+      ? intent.metric === 'aging_and_income' ? ['olderPopulationShare', 'medianHouseholdIncome'] : ['medianHouseholdIncome', 'diabetesPrevalence']
+      : [intent.metric],
+    grouping: intent.operation === 'growth' || intent.operation === 'change' ? 'time' as const : 'geography' as const,
+    landAreaDistortsInsight: !bivariate,
+    distributionsAvailable: false,
+  };
+}
+
 export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAnswer> {
   const definition = getMetricDefinition(intent.metric);
   if (!definition) throw new Error(`Metric ${intent.metric} is not approved for execution.`);
@@ -86,12 +100,12 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
       const result = await queryCensusStates(requestedYear, [variableId], states);
       requests = [{ vintage: requestedYear, url: result.requestUrl }];
       rows = result.rows.map((row) => ({ geography: censusName(row), geographyId: geographyId(row), values: { [reviewedDefinition.key]: numericValue(row, variableId) } })).sort((a, b) => (b.values[reviewedDefinition.key] ?? 0) - (a.values[reviewedDefinition.key] ?? 0));
-      return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected states using ${requestedYear} ACS data.` : `No valid ${reviewedDefinition.label} rows were available.`, rows, evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: (intent.states ?? []).join(', '), filters: { states: (intent.states ?? []).join(', '), metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
+      return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected states using ${requestedYear} ACS data.` : `No valid ${reviewedDefinition.label} rows were available.`, rows, visualization: visualizationFor(intent), evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: (intent.states ?? []).join(', '), filters: { states: (intent.states ?? []).join(', '), metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
     }
     const result = await queryCensus(requestedYear, [variableId], intent.state);
     requests = [{ vintage: requestedYear, url: result.requestUrl }];
     rows = selectedRows(result.rows, intent).map((row) => ({ geography: censusName(row), geographyId: geographyId(row), values: { [reviewedDefinition.key]: numericValue(row, variableId) } })).sort((a, b) => (b.values[reviewedDefinition.key] ?? 0) - (a.values[reviewedDefinition.key] ?? 0));
-    return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected counties using ${requestedYear} ACS data.` : `No matching rows were available for ${reviewedDefinition.label}.`, rows, evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: `${intent.state} counties`, filters: { state: intent.state ?? '', metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
+    return { summary: rows.length ? `${rows[0].geography} has the highest ${reviewedDefinition.label} among the selected counties using ${requestedYear} ACS data.` : `No matching rows were available for ${reviewedDefinition.label}.`, rows, visualization: visualizationFor(intent), evidence: { dataset: reviewedDefinition.dataset, vintage: requestedYear, variables: reviewedDefinition.variables.map((item) => ({ ...item })), geography: `${intent.state} counties`, filters: { state: intent.state ?? '', metric: reviewedDefinition.key }, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation: `Direct comparison of ${reviewedDefinition.variables[0].label} values; no derived formula applied.`, retrievedAt: new Date().toISOString() }, warnings };
   }
 
   if (intent.geography === 'state') {
@@ -110,6 +124,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
     return {
       summary: buildSummary(intent, rows, requests),
       rows,
+      visualization: visualizationFor(intent),
       evidence: {
         dataset: definition.dataset,
         vintage: requests.map((request) => request.vintage).join(', '),
@@ -193,7 +208,7 @@ export async function runCensusIntent(intent: QuestionIntent): Promise<CensusAns
 
   const stateName = resolveStateFips(intent.state).name;
   const filters = { state: stateName, metric: intent.metric, ...(intent.metric === 'aging_and_income' ? { agingThreshold: String(intent.filters?.agingThreshold ?? 20), incomeThreshold: String(intent.filters?.incomeThreshold ?? 60000) } : {}), ...(intent.metric === 'low_income_high_disease_prevalence' ? { incomeThreshold: String(intent.filters?.incomeThreshold ?? 60000), diseasePrevalenceThreshold: String(intent.filters?.diseasePrevalenceThreshold ?? 12) } : {}) };
-  return { summary: buildSummary(intent, rows, requests), rows, evidence: { dataset: definition.dataset, vintage: requests.map((request) => request.vintage).join(', '), variables: definition.variables.map((item) => ({ ...item })), geography: `${stateName} counties`, filters, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings };
+  return { summary: buildSummary(intent, rows, requests), rows, visualization: visualizationFor(intent), evidence: { dataset: definition.dataset, vintage: requests.map((request) => request.vintage).join(', '), variables: definition.variables.map((item) => ({ ...item })), geography: `${stateName} counties`, filters, requests, rawValues: rows.map((row) => ({ geography: row.geography, ...row.values })), calculation, retrievedAt: new Date().toISOString() }, warnings };
 }
 
 function buildSummary(intent: QuestionIntent, rows: CensusAnswer['rows'], requests: EvidenceRequest[]): string {

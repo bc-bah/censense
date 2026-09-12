@@ -22,6 +22,19 @@ CensusSense accepts a plain-English Census question and returns a conversational
 
 Only `population` and `poverty_rate` support the `growth`/`change`/state comparison shown above; every metric ultimately resolves through `getMetricDefinition()`, which also recognizes metrics registered at runtime via the catalog-review endpoint (see Section 4). Anything outside the resolvable catalog must receive an explicit unsupported response.
 
+### Visualization contract
+
+Completed answers may include visualization metadata and an optional distribution profile. The client applies this priority order:
+
+1. Two continuous spatial variables use a 3x3 bivariate comparison.
+2. Spatial comparisons where land area would distort the insight use equal-area hex tiles.
+3. A ridgeline is selected only when the answer includes real bins or samples.
+4. All other answers use a faceted estimate dot plot, with 90% whiskers only when uncertainty is supplied.
+
+The server supplies metadata for the approved metrics; the browser does not infer multivariate semantics from arbitrary value keys. A single point estimate never qualifies as a distribution. Distribution profiles may come from approved ACS detailed-table bins, in which case the visual must identify the result as an approximate binned reconstruction, or from geography-level observations when the question explicitly asks about the spread of geography estimates. Those observations must not be described as individual-level demographic distributions.
+
+ACS margin-of-error retrieval is not yet enabled in the Census client. The shared contract supports margin of error and standard error fields, and the renderer remains estimate-only when they are absent. Derived metric uncertainty must be propagated from paired estimate/MOE variables in a future data-client change rather than copied from a raw source variable.
+
 ## 2. Runtime and Repository Shape
 
 Actual structure:

@@ -11,6 +11,8 @@
     "start": "node dist/server/index.js"
   },
   "dependencies": {
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "leaflet": "^1.9.4",
