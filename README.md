@@ -19,6 +19,7 @@
   <img src="https://img.shields.io/badge/-Vitest-6E9F18?logo=vitest&logoColor=white" alt="Vitest" />
   <img src="https://img.shields.io/badge/-Ollama-000000?logo=ollama&logoColor=white" alt="Ollama" />
   <img src="https://img.shields.io/badge/-Markdown-000000?logo=markdown&logoColor=white" alt="Markdown" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-black" alt="MIT License" /></a>
 </p>
 
 ---
@@ -242,3 +243,7 @@ CensusSense is a focused hackathon MVP. It currently supports county-level quest
 - Ricardo Pizarro
 - Behnido Calida
 - Sarah Nolt-Caraway
+
+## License
+
+MIT &copy; 2026 Ricardo Pizarro, Behnido Calida, Sarah Nolt-Caraway. See [LICENSE](LICENSE).
