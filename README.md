@@ -10,6 +10,17 @@
   A local-first research assistant that combines conversational AI with deterministic calculations and evidence from the official U.S. Census Bureau API.
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/-TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/-React-61DAFB?logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/-Node.js-339933?logo=nodedotjs&logoColor=white" alt="Node.js" />
+  <img src="https://img.shields.io/badge/-Express-000000?logo=express&logoColor=white" alt="Express" />
+  <img src="https://img.shields.io/badge/-Vite-646CFF?logo=vite&logoColor=white" alt="Vite" />
+  <img src="https://img.shields.io/badge/-Vitest-6E9F18?logo=vitest&logoColor=white" alt="Vitest" />
+  <img src="https://img.shields.io/badge/-Ollama-000000?logo=ollama&logoColor=white" alt="Ollama" />
+  <img src="https://img.shields.io/badge/-Markdown-000000?logo=markdown&logoColor=white" alt="Markdown" />
+</p>
+
 ---
 
 ## The challenge
@@ -23,7 +34,8 @@ CensusSense turns that workflow into a guided conversation:
 3. Confirm the analysis.
 4. Receive ranked results, calculation details, caveats, and the exact Census API request.
 
-## Why CensusSense
+<details>
+<summary><h2>Why CensusSense</h2></summary>
 
 | Need | CensusSense response |
 |---|---|
@@ -33,7 +45,10 @@ CensusSense turns that workflow into a guided conversation:
 | Keep the demo resilient | A deterministic parser supports the core question set when Ollama is unavailable. |
 | Protect credentials | The Census API key stays in the local server and is never sent to the browser. |
 
-## What it can answer
+</details>
+
+<details>
+<summary><h2>What it can answer</h2></summary>
 
 The MVP supports allowlisted county- and state-level analyses across U.S. states and territories. The four county analyses below are the original judging scenarios, not hardcoded question branches:
 
@@ -54,7 +69,10 @@ Catalog search results include a **Review and approve direct metric** action. Th
 
 Reviewed metrics are currently held in memory for the MVP and are cleared when the API restarts. Persisting approvals should be added only after the team agrees on an auditable review record and storage boundary.
 
-## How it works
+</details>
+
+<details>
+<summary><h2>How it works</h2></summary>
 
 ```mermaid
 flowchart LR
@@ -93,7 +111,10 @@ The architecture separates probabilistic language understanding from authoritati
 
 The model cannot choose arbitrary Census variables, construct unrestricted queries, or author the official calculations.
 
-## Demo flow
+</details>
+
+<details>
+<summary><h2>Demo flow</h2></summary>
 
 1. Select an example prompt or enter a supported question.
 2. Inspect the proposed metric, years, geography, and operation.
@@ -101,7 +122,10 @@ The model cannot choose arbitrary Census variables, construct unrestricted queri
 4. Review the comparison table and any warnings.
 5. Expand **View evidence** to inspect the dataset, vintage, geography, variables, calculation, filters, raw values, warnings, and one source request per ACS vintage.
 
-## Getting started
+</details>
+
+<details open>
+<summary><h2>Getting started</h2></summary>
 
 ### Prerequisites
 
@@ -152,7 +176,10 @@ npm test
 
 `npm run build` compiles the TypeScript server and creates the Vite production bundle. `npm test` runs the deterministic calculation, interpretation, and Census-response validation tests.
 
-## Technology
+</details>
+
+<details>
+<summary><h2>Technology</h2></summary>
 
 | Layer | Technology |
 |---|---|
@@ -163,7 +190,10 @@ npm test
 | Authoritative data | U.S. Census Bureau ACS 5-year API, CDC PLACES county health data |
 | Verification | Vitest |
 
-## Repository guide
+</details>
+
+<details>
+<summary><h2>Repository guide</h2></summary>
 
 ```text
 .
@@ -186,11 +216,17 @@ npm test
 
 For design rationale and the full request lifecycle, see the [high-level architecture](docs/high-level-architecture.md). For API contracts and supported intent details, see the [detailed development specification](docs/detailed-specification.md).
 
-## Current scope
+</details>
+
+<details>
+<summary><h2>Current scope</h2></summary>
 
 CensusSense is a focused hackathon MVP. It currently supports county-level questions in the approved metric catalog, keeps conversation state in memory, and relies on the live Census API for results. It does not attempt unrestricted Census question answering, arbitrary variable discovery, authentication, or persistent conversation storage.
 
-## Responsible design
+</details>
+
+<details>
+<summary><h2>Responsible design</h2></summary>
 
 - Ambiguous inputs trigger clarification instead of assumptions.
 - Unsupported metrics are rejected explicitly.
@@ -198,6 +234,8 @@ CensusSense is a focused hackathon MVP. It currently supports county-level quest
 - Incompatible datasets, units, universes, or vintages are blocked from comparison.
 - Missing or suppressed values are preserved as warnings.
 - Secrets remain server-side and `.env` must never be committed.
+
+</details>
 
 ## Collaborators
 
